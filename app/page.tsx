@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2 } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +44,10 @@ export default function Home() {
   );
   const [steps, setSteps] = useState<Step[]>([]);
   const [hasConverted, setHasConverted] = useState(false);
+  const [activeTab, setActiveTab] = useState<"text" | "ai">("text");
+
+  // Placeholder — will connect to AI vision API in a future iteration
+  function handleFileUpload(_file: File) {}
 
   function handleConvert() {
     setSteps(parseInput(inputText));
@@ -95,59 +99,195 @@ export default function Home() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
-        className="w-full max-w-xl p-8 mb-6"
-        style={{ ...CARD_STYLE, borderRadius: RADIUS }}
+        className="w-full max-w-xl mb-6"
+        style={{ ...CARD_STYLE, borderRadius: RADIUS, overflow: "hidden" }}
       >
-        <label
-          htmlFor="pattern-input"
-          className="block text-sm font-semibold uppercase tracking-widest mb-3"
-          style={{ color: "var(--text-muted)" }}
+        {/* ── Tabs ── */}
+        <div
+          className="flex"
+          style={{ borderBottom: "1.5px solid var(--border)" }}
         >
-          编织图解文本
-        </label>
+          {(["text", "ai"] as const).map((tab) => {
+            const label = tab === "text" ? "文字录入" : "智能识别";
+            const active = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="relative flex-1 py-3.5 text-sm font-semibold tracking-wide transition-colors duration-200"
+                style={{
+                  color: active ? "var(--morandi-pink)" : "var(--text-muted)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+                {/* sliding underline indicator */}
+                {active && (
+                  <motion.span
+                    layoutId="tab-indicator"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                    style={{ background: "var(--morandi-pink)" }}
+                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
 
-        <textarea
-          id="pattern-input"
-          rows={7}
-          className="w-full p-4 text-base resize-none focus:outline-none transition-all duration-200"
-          style={{
-            background: "var(--bg)",
-            border: "1.5px solid var(--border)",
-            borderRadius: "1.25rem",
-            color: "var(--text-main)",
-            fontFamily: "var(--font-body)",
-          }}
-          onFocus={(e) =>
-            (e.currentTarget.style.border =
-              "1.5px solid var(--morandi-pink)")
-          }
-          onBlur={(e) =>
-            (e.currentTarget.style.border = "1.5px solid var(--border)")
-          }
-          placeholder={`例如：\nR1: CO 20 sts\nRow 2: Knit all stitches\nR3: K2, P2, repeat to end\nRow 4: Purl all sts\nBind off all sts`}
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-        />
+        {/* ── Tab panels ── */}
+        <div className="p-8">
+          <AnimatePresence mode="wait">
 
-        {/* ── Convert Button ── */}
-        <motion.button
-          onClick={handleConvert}
-          disabled={isDisabled}
-          whileHover={isDisabled ? {} : { scale: 1.05 }}
-          whileTap={isDisabled ? {} : { scale: 0.95 }}
-          transition={{ type: "spring", stiffness: 380, damping: 16 }}
-          className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
-          style={{
-            background: "var(--morandi-pink)",
-            color: "#fff",
-            borderRadius: RADIUS,
-            boxShadow: "0 4px 20px -6px rgba(231,200,197,0.7)",
-            opacity: isDisabled ? 0.45 : 1,
-            cursor: isDisabled ? "not-allowed" : "pointer",
-          }}
-        >
-          解析图解 ✨
-        </motion.button>
+            {/* ── Text panel ── */}
+            {activeTab === "text" && (
+              <motion.div
+                key="text"
+                initial={{ opacity: 0, x: -14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 14 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                <textarea
+                  id="pattern-input"
+                  rows={7}
+                  className="w-full p-4 text-base resize-none focus:outline-none transition-all duration-200"
+                  style={{
+                    background: "var(--bg)",
+                    border: "1.5px solid var(--border)",
+                    borderRadius: "1.25rem",
+                    color: "var(--text-main)",
+                    fontFamily: "var(--font-body)",
+                  }}
+                  onFocus={(e) =>
+                    (e.currentTarget.style.border =
+                      "1.5px solid var(--morandi-pink)")
+                  }
+                  onBlur={(e) =>
+                    (e.currentTarget.style.border = "1.5px solid var(--border)")
+                  }
+                  placeholder={`例如：\nR1: CO 20 sts\nRow 2: Knit all stitches\nR3: K2, P2, repeat to end\nRow 4: Purl all sts\nBind off all sts`}
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                />
+
+                <motion.button
+                  onClick={handleConvert}
+                  disabled={isDisabled}
+                  whileHover={isDisabled ? {} : { scale: 1.05 }}
+                  whileTap={isDisabled ? {} : { scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 380, damping: 16 }}
+                  className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
+                  style={{
+                    background: "var(--morandi-pink)",
+                    color: "#fff",
+                    borderRadius: RADIUS,
+                    boxShadow: "0 4px 20px -6px rgba(231,200,197,0.7)",
+                    opacity: isDisabled ? 0.45 : 1,
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                  }}
+                >
+                  解析图解 ✨
+                </motion.button>
+              </motion.div>
+            )}
+
+            {/* ── AI Upload panel ── */}
+            {activeTab === "ai" && (
+              <motion.div
+                key="ai"
+                initial={{ opacity: 0, x: 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                <label
+                  htmlFor="file-upload"
+                  className="flex flex-col items-center justify-center gap-4 w-full cursor-pointer transition-all duration-200"
+                  style={{
+                    minHeight: "220px",
+                    border: "2px dashed var(--morandi-sage)",
+                    borderRadius: "1.5rem",
+                    background: "var(--bg)",
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.style.borderColor = "var(--morandi-pink)";
+                    e.currentTarget.style.background = "var(--bg-card)";
+                  }}
+                  onDragLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--morandi-sage)";
+                    e.currentTarget.style.background = "var(--bg)";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.style.borderColor = "var(--morandi-sage)";
+                    e.currentTarget.style.background = "var(--bg)";
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) handleFileUpload(file);
+                  }}
+                >
+                  <motion.div
+                    animate={{ y: [0, -5, 0] }}
+                    transition={{ repeat: Infinity, duration: 2.6, ease: "easeInOut" }}
+                  >
+                    <UploadCloud
+                      size={48}
+                      strokeWidth={1.4}
+                      style={{ color: "var(--morandi-sage)" }}
+                    />
+                  </motion.div>
+
+                  <div className="text-center px-4">
+                    <p
+                      className="text-sm font-semibold"
+                      style={{ color: "var(--text-main)" }}
+                    >
+                      拖拽图片或视频到这里
+                    </p>
+                    <p
+                      className="mt-1 text-xs"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      KnitStep 帮你识别编织步骤
+                    </p>
+                    <p
+                      className="mt-3 text-xs px-3 py-1 rounded-full inline-block"
+                      style={{
+                        background: "var(--morandi-sage)",
+                        color: "#fff",
+                        opacity: 0.85,
+                      }}
+                    >
+                      或点击选择文件
+                    </p>
+                  </div>
+
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept="image/*,video/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileUpload(file);
+                    }}
+                  />
+                </label>
+
+                <p
+                  className="mt-4 text-center text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  🔜 AI 识别功能即将上线，敬请期待
+                </p>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
+        </div>
       </motion.div>
 
       {/* ── Results Card ── */}
