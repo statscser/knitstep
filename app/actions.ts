@@ -13,8 +13,25 @@ export async function parsePatternAction(text: string, language: 'zh' | 'en', re
 
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
   const prompt = language === 'zh'
-    ? `将编织图解转为 JSON: {"steps":[{"text":"步骤"}]} \n\n ${text}`
-    : `Convert to JSON: {"steps":[{"text":"step"}]} \n\n ${text}`;
+    ? `你是一位专业的编织翻译专家。请将以下英文图解转换为中文清单。
+       
+       【核心准则】：
+       1. 必须保留原始行号标签（例如 "Row 5:"或者"R5" 翻译为 "第5行:"）。
+       2. 翻译要专业，同时在括号中保留关键术语（例如：空针 (yo), 左上二并一 (k2tog)）。
+       3. 严禁自行发明或修改针法逻辑，必须忠实于原稿。
+       4. 如果是行数范围（如 Rows 1-4），请写为 "第1-4行: [重复动作]"。
+
+       【返回格式】：
+       只返回 JSON：{"steps":[{"text":"第X行: 翻译后的指令 (Original Instruction)"}]}
+       
+       图解文本如下：
+       ${text}`
+    : `You are a strict knitting pattern extractor. 
+       [CRITICAL RULES]:
+       1. EXTRACT instructions verbatim. Keep all row labels (e.g., "Row 5:").
+       2. Do NOT rewrite or "improve" the pattern logic.
+       3. For row ranges (e.g., "Rows 1-4"), clearly state the range.
+       Return JSON only: {"steps":[{"text":"Row X: exact instruction content"}]}`;
 
   try {
     const result = await model.generateContent(prompt);
