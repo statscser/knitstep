@@ -3,64 +3,38 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+const MODEL_NAME = "gemini-2.5-flash"
 
-const REQUEST_TIMEOUT_MS = 15_000
+// 辅助函数：等待一段时间
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function parsePatternAction(text: string, language: 'zh' | 'en') {
-  if (!process.env.GEMINI_API_KEY) throw new Error('API_KEY_IS_MISSING_IN_ENV')
+export async function parsePatternAction(text: string, language: 'zh' | 'en', retryCount = 0) {
+  if (!process.env.GEMINI_API_KEY) throw new Error('API_KEY_MISSING');
 
-  // Prefer gemini-2.0-flash (stable until Mar 2026). If 429, try gemini-2.0-flash-lite.
-  const modelId = "gemini-2.0-flash"
-  console.log('🚀 Sending request to Gemini:', modelId)
-  console.log('Key prefix:', process.env.GEMINI_API_KEY.substring(0, 8) + '...')
-
-  const model = genAI.getGenerativeModel({ model: modelId })
-
+  const model = genAI.getGenerativeModel({ model: MODEL_NAME });
   const prompt = language === 'zh'
-    ? `你是编织助手。将以下编织图解拆解为步骤清单，用中文描述，专业术语保留英文缩写（括号内）。只返回 JSON，格式：{"steps":[{"id":"1","text":"步骤说明"}]}。\n\n${text}`
-    : `You are a knitting assistant. Break the following pattern into a step-by-step checklist. Return JSON only: {"steps":[{"id":"1","text":"step description"}]}.\n\n${text}`
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), REQUEST_TIMEOUT_MS)
-  })
+    ? `将编织图解转为 JSON: {"steps":[{"text":"步骤"}]} \n\n ${text}`
+    : `Convert to JSON: {"steps":[{"text":"step"}]} \n\n ${text}`;
 
   try {
-    const result = await Promise.race([
-      model.generateContent(prompt),
-      timeoutPromise,
-    ])
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const raw = response.text().trim();
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd = raw.lastIndexOf('}');
+    return JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
-    const response = result.response
-
-    // Log response metadata only (avoid flooding console with full text)
-    const headerInfo = {
-      hasCandidates: !!response.candidates?.length,
-      candidateCount: response.candidates?.length ?? 0,
-      finishReason: response.candidates?.[0]?.finishReason,
-      textLength: response.text?.()?.length ?? 0,
-    }
-    console.log('📥 Gemini response header:', headerInfo)
-
-    const raw = response.text().trim()
-    const jsonStart = raw.indexOf('{')
-    const jsonEnd   = raw.lastIndexOf('}')
-    if (jsonStart === -1 || jsonEnd === -1) throw new Error('No JSON found in response')
-
-    const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1))
-    console.log('Parsed steps count:', parsed.steps?.length ?? 0)
-    return parsed
-
-  } catch (error) {
-    console.log('Full Error Object:', error)
-
-    if ((error as Error).message === 'REQUEST_TIMEOUT') {
-      throw new Error('REQUEST_TIMEOUT')
+  } catch (error: any) {
+    // ✨ 核心逻辑：如果是 429 错误，且重试次数少于 3 次
+    if (error.status === 429 && retryCount < 3) {
+      console.log(`⚠️ 触发频率限制，正在进行第 ${retryCount + 1} 次重试...`);
+      // 等待时间随次数增加：2s, 4s, 8s
+      await sleep(Math.pow(2, retryCount + 1) * 1000); 
+      return parsePatternAction(text, language, retryCount + 1);
     }
 
-    const status = (error as { status?: number }).status
-    if (status === 429) throw new Error('QUOTA_EXCEEDED')
-    if (status === 401 || status === 403) throw new Error('INVALID_API_KEY')
-    if (status === 404) throw new Error('MODEL_NOT_FOUND')
-    throw new Error('UNKNOWN_ERROR')
+    console.error('Gemini Error:', error);
+    // 转发给前端识别
+    throw new Error(error.status === 429 ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
   }
 }

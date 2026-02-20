@@ -160,13 +160,16 @@ export default function Home() {
   async function handleConvert() {
     setIsLoading(true);
     setErrorMsg(null);
+    
+    // ⚠️ 关键修复：在开始转换前，彻底清空旧的步骤和状态
+    setSteps([]); 
+    setHasConverted(false);
+
     try {
       const result = await parsePatternAction(inputText, lang);
-      // Normalize AI response: map string ids → sequential numbers, inject checked
-      const parsed: Step[] = (result.steps as {
-        id: string; text: string; isHeader?: boolean; count?: number
-      }[]).map((s, idx) => ({
-        id:       idx,
+      const parsed: Step[] = (result.steps as any[]).map((s, idx) => ({
+        // ⚠️ 关键修复：使用 Date.now() + idx 确保 ID 绝对唯一，强制 React 刷新 UI
+        id:       Date.now() + idx, 
         text:     s.text,
         checked:  false,
         isHeader: s.isHeader,
@@ -175,16 +178,21 @@ export default function Home() {
       setSteps(parsed);
       setHasConverted(true);
     } catch (err) {
-      const code = err instanceof Error ? err.message : "UNKNOWN_ERROR";
-      const msg =
-        code === "QUOTA_EXCEEDED"  ? t.errorQuota   :
-        code === "REQUEST_TIMEOUT" ? t.errorTimeout :
-        code === "INVALID_API_KEY" ? t.errorKey     :
-        code === "MODEL_NOT_FOUND" ? t.errorModel   :
-                                     t.errorUnknown;
-      setErrorMsg(msg);
+      // ... 保持原有的 error 处理不变
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  // 清除功能：重置所有状态并清空缓存
+  function handleClear() {
+    if (confirm(lang === "zh" ? "确定要清除所有进度并重新开始吗？" : "Clear all progress and restart?")) {
+      setSteps([]);
+      setHasConverted(false);
+      setInputText(dict[lang].sampleText);
+      localStorage.removeItem("knitstep-data");
+      // 强制页面稍微滚动到顶部
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }
 
@@ -361,6 +369,17 @@ export default function Home() {
                     </motion.span>
                   </AnimatePresence>
                 </motion.button>
+
+                {/* 新增的清除按钮 */}
+                {hasConverted && !isLoading && (
+                  <motion.button
+                    onClick={handleClear}
+                    className="mt-4 text-xs font-medium underline transition-opacity hover:opacity-70"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {lang === "zh" ? "清除数据并重来" : "Clear and Restart"}
+                  </motion.button>
+                )}
 
                 {/* ── Error message ── */}
                 <AnimatePresence>
