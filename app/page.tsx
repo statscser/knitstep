@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circle, CheckCircle2, UploadCloud } from "lucide-react";
+import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,8 @@ interface Step {
   id: number;
   text: string;
   checked: boolean;
+  isHeader?: boolean;
+  count?: number;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────
@@ -21,8 +24,13 @@ const dict = {
     subtitle:       "将你的编织图解转为进度清单",
     tabText:        "文字录入",
     tabAI:          "智能识别",
-    placeholder:    "粘贴你的织法图解...\n\n例如：\nR1: CO 20 sts\nRow 2: Knit all stitches\nR3: K2, P2, repeat to end\nRow 4: Purl all sts\nBind off all sts",
+    placeholder:    "粘贴你的织法图解...\n\n例如：\nR1: knit all. R2: purl all. Repeat R1-R2 for 10 rows.",
     convertBtn:     "开始转换 ✨",
+    loadingBtn:     "✨ AI 正在编织清单...",
+    errorQuota:     "今日 API 配额已用完，请稍后再试或升级套餐。",
+    errorKey:       "API Key 无效，请检查 .env.local 文件。",
+    errorModel:     "模型暂不可用，请稍后重试。",
+    errorUnknown:   "解析失败，请稍后重试。",
     uploadTitle:    "拖拽图片或视频到这里",
     uploadSub:      "KnitStep 帮你识别编织步骤",
     uploadClick:    "或点击选择文件",
@@ -31,6 +39,7 @@ const dict = {
     noMatch:        "未识别到编织行指令。",
     noMatchSub:     "请确认文本包含 Row、R1、knit、purl 等关键词。",
     allDone:        "🎉 全部完成！你的编织作品完工啦！",
+    sampleText:     "用 4mm 的针起 40 针。第 1-8 行织双罗纹（K2, P2）。接下来的 20 行，单数行织全下针，双数行织全上针。",
   },
   en: {
     subtitle:       "Turn your knitting patterns into a checklist",
@@ -38,6 +47,11 @@ const dict = {
     tabAI:          "Smart Scan",
     placeholder:    "Paste your pattern here...\n\ne.g.:\nR1: CO 20 sts\nRow 2: Knit all stitches\nR3: K2, P2, repeat to end\nRow 4: Purl all sts\nBind off all sts",
     convertBtn:     "Convert Now ✨",
+    loadingBtn:     "✨ AI is weaving your checklist...",
+    errorQuota:     "API quota exceeded. Please wait a moment or upgrade your plan.",
+    errorKey:       "Invalid API key. Please check your .env.local file.",
+    errorModel:     "Model unavailable. Please try again later.",
+    errorUnknown:   "Parsing failed. Please try again.",
     uploadTitle:    "Drag an image or video here",
     uploadSub:      "KnitStep will recognize your knitting steps",
     uploadClick:    "or click to browse files",
@@ -46,6 +60,7 @@ const dict = {
     noMatch:        "No knitting row instructions detected.",
     noMatchSub:     "Make sure the text contains keywords like Row, R1, knit, purl, etc.",
     allDone:        "🎉 All done! Your knitted piece is complete!",
+    sampleText:     "R1: knit all. R2: purl all. Repeat R1-R2 for 10 rows.",
   },
 } as const;
 
@@ -81,34 +96,63 @@ export default function Home() {
 
   useEffect(() => {
     const saved = localStorage.getItem("knitstep-lang");
-    if (saved === "zh" || saved === "en") setLang(saved);
+    if (saved === "zh" || saved === "en") {
+      setLang(saved);
+      setInputText(dict[saved].sampleText);
+    }
   }, []);
 
   function toggleLang() {
     const next: Lang = lang === "zh" ? "en" : "zh";
     setLang(next);
     localStorage.setItem("knitstep-lang", next);
+    // Swap sample text only if the user hasn't typed their own content
+    if (inputText === dict[lang].sampleText) {
+      setInputText(dict[next].sampleText);
+    }
   }
 
   const t = dict[lang];
 
   // ── Core state ──
-  const [inputText, setInputText] = useState(
-    "R1: CO 20 sts\nRow 2: Knit all stitches\nR3: K2, P2, repeat to end\nRow 4: Purl all sts\nBind off all sts"
-  );
+  const [inputText, setInputText] = useState<string>(dict.zh.sampleText);
   const [steps, setSteps]               = useState<Step[]>([]);
   const [hasConverted, setHasConverted] = useState(false);
   const [activeTab, setActiveTab]       = useState<"text" | "ai">("text");
+  const [isLoading, setIsLoading]       = useState(false);
+  const [errorMsg, setErrorMsg]         = useState<string | null>(null);
 
-  // Placeholder — future: send file to AI vision API with lang-aware prompt:
-  // "Detect the pattern language. If UI lang is 'zh', translate complex knitting
-  //  terms into plain Chinese with the original term in parentheses. If 'en',
-  //  output the checklist in English directly."
+  // Placeholder — future: send file to AI vision API with lang-aware prompt.
   function handleFileUpload(_file: File) {}
 
-  function handleConvert() {
-    setSteps(parseInput(inputText));
-    setHasConverted(true);
+  async function handleConvert() {
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      const result = await parsePatternAction(inputText, lang);
+      // Normalize AI response: map string ids → sequential numbers, inject checked
+      const parsed: Step[] = (result.steps as {
+        id: string; text: string; isHeader?: boolean; count?: number
+      }[]).map((s, idx) => ({
+        id:       idx,
+        text:     s.text,
+        checked:  false,
+        isHeader: s.isHeader,
+        count:    s.count,
+      }));
+      setSteps(parsed);
+      setHasConverted(true);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "UNKNOWN_ERROR";
+      const msg =
+        code === "QUOTA_EXCEEDED"  ? t.errorQuota  :
+        code === "INVALID_API_KEY" ? t.errorKey    :
+        code === "MODEL_NOT_FOUND" ? t.errorModel  :
+                                     t.errorUnknown;
+      setErrorMsg(msg);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function toggleStep(id: number) {
@@ -117,10 +161,11 @@ export default function Home() {
     );
   }
 
-  const doneCount  = steps.filter((s) => s.checked).length;
-  const totalCount = steps.length;
-  const allDone    = totalCount > 0 && doneCount === totalCount;
-  const isDisabled = inputText.trim().length === 0;
+  const checkableSteps = steps.filter((s) => !s.isHeader);
+  const doneCount      = checkableSteps.filter((s) => s.checked).length;
+  const totalCount     = checkableSteps.length;
+  const allDone        = totalCount > 0 && doneCount === totalCount;
+  const isDisabled = inputText.trim().length === 0 || isLoading;
 
   return (
     <div
@@ -253,30 +298,52 @@ export default function Home() {
                   disabled={isDisabled}
                   whileHover={isDisabled ? {} : { scale: 1.05 }}
                   whileTap={isDisabled ? {} : { scale: 0.95 }}
-                  transition={{ type: "spring", stiffness: 380, damping: 16 }}
+                  // breathing animation while loading
+                  animate={isLoading ? { opacity: [1, 0.55, 1] } : { opacity: 1 }}
+                  transition={
+                    isLoading
+                      ? { opacity: { repeat: Infinity, duration: 1.4, ease: "easeInOut" } }
+                      : { type: "spring", stiffness: 380, damping: 16 }
+                  }
                   className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
                   style={{
-                    background:  "var(--morandi-pink)",
-                    color:       "#fff",
+                    background:   "var(--morandi-pink)",
+                    color:        "#fff",
                     borderRadius: RADIUS,
-                    boxShadow:   "0 4px 20px -6px rgba(231,200,197,0.7)",
-                    opacity:     isDisabled ? 0.45 : 1,
-                    cursor:      isDisabled ? "not-allowed" : "pointer",
+                    boxShadow:    "0 4px 20px -6px rgba(231,200,197,0.7)",
+                    opacity:      inputText.trim().length === 0 ? 0.45 : 1,
+                    cursor:       isDisabled ? "not-allowed" : "pointer",
                   }}
                 >
                   <AnimatePresence mode="wait">
                     <motion.span
-                      key={lang + "-btn"}
+                      key={isLoading ? "loading" : lang + "-btn"}
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ duration: 0.18 }}
                       className="block"
                     >
-                      {t.convertBtn}
+                      {isLoading ? t.loadingBtn : t.convertBtn}
                     </motion.span>
                   </AnimatePresence>
                 </motion.button>
+
+                {/* ── Error message ── */}
+                <AnimatePresence>
+                  {errorMsg && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3 text-center text-xs font-medium"
+                      style={{ color: "var(--morandi-blush)" }}
+                    >
+                      ⚠️ {errorMsg}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
 
@@ -383,9 +450,14 @@ export default function Home() {
         </div>
       </motion.div>
 
+      {/* ── Loading skeleton ── */}
+      <AnimatePresence>
+        {isLoading && <LoadingSkeleton key="skeleton" />}
+      </AnimatePresence>
+
       {/* ── Results Card ── */}
       <AnimatePresence>
-        {hasConverted && (
+        {hasConverted && !isLoading && (
           <motion.div
             key="results"
             initial={{ opacity: 0, y: 28, scale: 0.97 }}
@@ -579,28 +651,56 @@ function StepItem({
   index: number;
   onToggle: () => void;
 }) {
+  // Header rows: no checkbox, distinct background, non-interactive
+  if (step.isHeader) {
+    return (
+      <motion.li
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: index * 0.06 }}
+        className="flex items-center gap-2 px-5 py-3 select-none"
+        style={{
+          background:   "var(--morandi-sage)",
+          borderRadius: "1.25rem",
+          boxShadow:    "0 2px 10px -4px rgba(163,177,138,0.35)",
+        }}
+      >
+        <span className="text-lg">🧶</span>
+        <span
+          className="text-sm font-bold leading-snug"
+          style={{ color: "#fff" }}
+        >
+          {step.text}
+        </span>
+      </motion.li>
+    );
+  }
+
   return (
     <motion.li
       initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: step.checked ? 0.72 : 1, x: 0 }}
+      animate={{ opacity: step.checked ? 0.65 : 1, x: 0 }}
       transition={{
         opacity: { duration: 0.25, delay: index * 0.06 },
         x: { type: "spring", stiffness: 340, damping: 26, delay: index * 0.06 },
       }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={{ y: -1 }}
+      whileTap={{ scale: 0.985 }}
       onClick={onToggle}
-      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none"
+      className="flex items-start gap-3 px-5 py-4 cursor-pointer select-none"
       style={{
         background:   step.checked ? "var(--bg)" : "var(--bg-card)",
-        border:       "1.5px solid var(--border)",
+        border:       `1.5px solid ${step.checked ? "var(--border)" : "var(--morandi-stone)"}`,
         borderRadius: "1.25rem",
-        transition:   "background 0.2s, opacity 0.2s",
+        boxShadow:    step.checked ? "none" : "0 3px 12px -6px rgba(0,0,0,0.08)",
+        transition:   "background 0.2s, border-color 0.2s, box-shadow 0.2s",
       }}
     >
+      {/* Checkbox icon */}
       <motion.span
         animate={step.checked ? { scale: [1, 1.3, 1] } : { scale: 1 }}
         transition={{ duration: 0.28 }}
-        className="shrink-0"
+        className="shrink-0 mt-0.5"
       >
         {step.checked ? (
           <CheckCircle2 size={22} strokeWidth={1.8} style={{ color: "var(--morandi-green)" }} />
@@ -609,16 +709,84 @@ function StepItem({
         )}
       </motion.span>
 
-      <span
-        className="text-sm font-medium leading-relaxed"
-        style={{
-          color:          step.checked ? "var(--text-muted)" : "var(--text-main)",
-          textDecoration: step.checked ? "line-through" : "none",
-          transition:     "color 0.2s",
-        }}
-      >
-        {step.text}
-      </span>
+      {/* Text + count badge */}
+      <div className="flex-1 min-w-0">
+        <span
+          className="text-base font-medium leading-relaxed"
+          style={{
+            color:          step.checked ? "var(--text-muted)" : "var(--text-main)",
+            textDecoration: step.checked ? "line-through" : "none",
+            transition:     "color 0.2s",
+          }}
+        >
+          {step.text}
+        </span>
+
+        {step.count && step.count > 1 && (
+          <span
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+            style={{
+              background: "var(--morandi-pink)",
+              color:      "#fff",
+              opacity:    step.checked ? 0.5 : 0.9,
+            }}
+          >
+            ×{step.count} rows
+          </span>
+        )}
+      </div>
     </motion.li>
+  );
+}
+
+// ─── LoadingSkeleton ──────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 10 }}
+      transition={{ duration: 0.3 }}
+      className="w-full max-w-xl p-8"
+      style={{
+        background:   "var(--bg-card)",
+        border:       "1.5px solid var(--border)",
+        boxShadow:    "0 10px 40px -15px rgba(0,0,0,0.05)",
+        borderRadius: "2rem",
+      }}
+    >
+      {/* Spinning yarn logo */}
+      <div className="flex flex-col items-center gap-4 py-6">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+        >
+          <svg width="44" height="44" viewBox="0 0 72 72" fill="none">
+            <circle cx="36" cy="38" r="22" stroke="#E8A89E" strokeWidth="2.2" fill="none" strokeDasharray="8 4" />
+            <path d="M14 38 Q36 30 58 38" stroke="#E8A89E" strokeWidth="1.8" fill="none" strokeLinecap="round" />
+            <path d="M36 16 Q42 38 36 60" stroke="#E8A89E" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.6" />
+            <line x1="52" y1="10" x2="20" y2="42" stroke="#8FAF96" strokeWidth="3" strokeLinecap="round" />
+            <circle cx="52" cy="10" r="3.5" fill="#8FAF96" />
+          </svg>
+        </motion.div>
+
+        {/* Skeleton rows */}
+        <div className="w-full flex flex-col gap-3 mt-2">
+          {[100, 80, 90, 70].map((w, i) => (
+            <motion.div
+              key={i}
+              animate={{ opacity: [0.4, 0.9, 0.4] }}
+              transition={{ repeat: Infinity, duration: 1.4, delay: i * 0.15, ease: "easeInOut" }}
+              className="h-12 rounded-2xl"
+              style={{
+                width:      `${w}%`,
+                background: "var(--border)",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </motion.div>
   );
 }
