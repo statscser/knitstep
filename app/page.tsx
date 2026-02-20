@@ -27,7 +27,8 @@ const dict = {
     placeholder:    "粘贴你的织法图解...\n\n例如：\nR1: knit all. R2: purl all. Repeat R1-R2 for 10 rows.",
     convertBtn:     "开始转换 ✨",
     loadingBtn:     "✨ AI 正在编织清单...",
-    errorQuota:     "今日 API 配额已用完，请稍后再试或升级套餐。",
+    errorQuota:     "AI 正在休息（频率限制），请 30 秒后再试。",
+    errorTimeout:   "请求超时，请稍后重试。",
     errorKey:       "API Key 无效，请检查 .env.local 文件。",
     errorModel:     "模型暂不可用，请稍后重试。",
     errorUnknown:   "解析失败，请稍后重试。",
@@ -48,7 +49,8 @@ const dict = {
     placeholder:    "Paste your pattern here...\n\ne.g.:\nR1: CO 20 sts\nRow 2: Knit all stitches\nR3: K2, P2, repeat to end\nRow 4: Purl all sts\nBind off all sts",
     convertBtn:     "Convert Now ✨",
     loadingBtn:     "✨ AI is weaving your checklist...",
-    errorQuota:     "API quota exceeded. Please wait a moment or upgrade your plan.",
+    errorQuota:     "AI is resting (rate limit). Please try again in 30 seconds.",
+    errorTimeout:   "Request timed out. Please try again.",
     errorKey:       "Invalid API key. Please check your .env.local file.",
     errorModel:     "Model unavailable. Please try again later.",
     errorUnknown:   "Parsing failed. Please try again.",
@@ -175,9 +177,10 @@ export default function Home() {
     } catch (err) {
       const code = err instanceof Error ? err.message : "UNKNOWN_ERROR";
       const msg =
-        code === "QUOTA_EXCEEDED"  ? t.errorQuota  :
-        code === "INVALID_API_KEY" ? t.errorKey    :
-        code === "MODEL_NOT_FOUND" ? t.errorModel  :
+        code === "QUOTA_EXCEEDED"  ? t.errorQuota   :
+        code === "REQUEST_TIMEOUT" ? t.errorTimeout :
+        code === "INVALID_API_KEY" ? t.errorKey     :
+        code === "MODEL_NOT_FOUND" ? t.errorModel   :
                                      t.errorUnknown;
       setErrorMsg(msg);
     } finally {
