@@ -374,7 +374,7 @@ export default function Home() {
                 {hasConverted && !isLoading && (
                   <motion.button
                     onClick={handleClear}
-                    className="mt-4 text-xs font-medium underline transition-opacity hover:opacity-70"
+                    className="mt-4 text-xs font-medium underline transition-opacity hover:opacity-70 w-full text-center"
                     style={{ color: "var(--text-muted)" }}
                   >
                     {lang === "zh" ? "清除数据并重来" : "Clear and Restart"}
