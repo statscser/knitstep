@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circle, CheckCircle2, UploadCloud } from "lucide-react";
 import { parsePatternAction } from "./actions";
@@ -91,36 +91,66 @@ const RADIUS = "2rem";
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  // ── Language — persisted in localStorage ──
-  const [lang, setLang] = useState<Lang>("zh");
+  // ── State ──
+  const [lang, setLang]                 = useState<Lang>("zh");
+  const [inputText, setInputText]       = useState<string>(dict.zh.sampleText);
+  const [steps, setSteps]               = useState<Step[]>([]);
+  const [hasConverted, setHasConverted] = useState(false);
+  const [activeTab, setActiveTab]       = useState<"text" | "ai">("text");
+  const [isLoading, setIsLoading]       = useState(false);
+  const [errorMsg, setErrorMsg]         = useState<string | null>(null);
 
+  // Guards against saving before hydration completes (avoids overwriting restored data)
+  const hydrated = useRef(false);
+
+  // ── Hydration — restore all state from localStorage on first mount ──
   useEffect(() => {
-    const saved = localStorage.getItem("knitstep-lang");
-    if (saved === "zh" || saved === "en") {
-      setLang(saved);
-      setInputText(dict[saved].sampleText);
+    if (typeof window === "undefined") return;
+
+    const savedLang = localStorage.getItem("knitstep-lang");
+    const savedData = localStorage.getItem("knitstep-data");
+
+    const restoredLang: Lang =
+      savedLang === "zh" || savedLang === "en" ? savedLang : "zh";
+    setLang(restoredLang);
+
+    if (savedData) {
+      try {
+        const { inputText: si, steps: ss, hasConverted: sc } = JSON.parse(savedData);
+        if (typeof si === "string") setInputText(si);
+        if (Array.isArray(ss))     setSteps(ss);
+        if (typeof sc === "boolean") setHasConverted(sc);
+      } catch {
+        // Corrupt data — fall back to sample text
+        setInputText(dict[restoredLang].sampleText);
+      }
+    } else {
+      setInputText(dict[restoredLang].sampleText);
     }
+
+    hydrated.current = true;
   }, []);
+
+  // ── Persistence — save whenever relevant state changes ──
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      "knitstep-data",
+      JSON.stringify({ inputText, steps, hasConverted })
+    );
+  }, [inputText, steps, hasConverted]);
 
   function toggleLang() {
     const next: Lang = lang === "zh" ? "en" : "zh";
     setLang(next);
     localStorage.setItem("knitstep-lang", next);
-    // Swap sample text only if the user hasn't typed their own content
     if (inputText === dict[lang].sampleText) {
       setInputText(dict[next].sampleText);
     }
   }
 
   const t = dict[lang];
-
-  // ── Core state ──
-  const [inputText, setInputText] = useState<string>(dict.zh.sampleText);
-  const [steps, setSteps]               = useState<Step[]>([]);
-  const [hasConverted, setHasConverted] = useState(false);
-  const [activeTab, setActiveTab]       = useState<"text" | "ai">("text");
-  const [isLoading, setIsLoading]       = useState(false);
-  const [errorMsg, setErrorMsg]         = useState<string | null>(null);
 
   // Placeholder — future: send file to AI vision API with lang-aware prompt.
   function handleFileUpload(_file: File) {}
