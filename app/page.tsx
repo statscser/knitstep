@@ -103,6 +103,9 @@ export default function Home() {
   const [activeTab, setActiveTab]       = useState<"text" | "ai">("text");
   const [isLoading, setIsLoading]       = useState(false);
   const [errorMsg, setErrorMsg]         = useState<string | null>(null);
+  const [uploadedImage, setUploadedImage] = useState<{
+    base64: string; mimeType: string; previewUrl: string;
+  } | null>(null);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -156,8 +159,16 @@ export default function Home() {
 
   const t = dict[lang];
 
-  // Placeholder — future: send file to AI vision API with lang-aware prompt.
-  function handleFileUpload(_file: File) {}
+  function handleFileUpload(file: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      const [header, base64] = dataUrl.split(',');
+      const mimeType = header.split(':')[1].split(';')[0];
+      setUploadedImage({ base64, mimeType, previewUrl: dataUrl });
+    };
+    reader.readAsDataURL(file);
+  }
 
   async function handleConvert() {
     setIsLoading(true);
@@ -168,7 +179,9 @@ export default function Home() {
     setHasConverted(false);
 
     try {
-      const result = await parsePatternAction(inputText, lang);
+      const result = activeTab === "ai" && uploadedImage
+        ? await parsePatternAction("", lang, 0, uploadedImage.base64, uploadedImage.mimeType)
+        : await parsePatternAction(inputText, lang);
       const parsed: Step[] = (result.steps as any[]).map((s, idx) => ({
         // ⚠️ 关键修复：使用 Date.now() + idx 确保 ID 绝对唯一，强制 React 刷新 UI
         id:       Date.now() + idx,
@@ -228,7 +241,7 @@ export default function Home() {
   const doneCount      = checkableSteps.filter((s) => s.checked).length;
   const totalCount     = checkableSteps.length;
   const allDone        = totalCount > 0 && doneCount === totalCount;
-  const isDisabled = inputText.trim().length === 0 || isLoading;
+  const isDisabled = (activeTab === "text" ? inputText.trim().length === 0 : !uploadedImage) || isLoading;
 
   return (
     <div
@@ -430,92 +443,155 @@ export default function Home() {
                 exit={{ opacity: 0, x: -14 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
               >
-                <label
-                  htmlFor="file-upload"
-                  className="flex flex-col items-center justify-center gap-4 w-full cursor-pointer transition-all duration-200"
-                  style={{
-                    minHeight:  "220px",
-                    border:     "2px dashed var(--morandi-sage)",
-                    borderRadius: "1.5rem",
-                    background: "var(--bg)",
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.currentTarget.style.borderColor = "var(--morandi-pink)";
-                    e.currentTarget.style.background  = "var(--bg-card)";
-                  }}
-                  onDragLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--morandi-sage)";
-                    e.currentTarget.style.background  = "var(--bg)";
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.currentTarget.style.borderColor = "var(--morandi-sage)";
-                    e.currentTarget.style.background  = "var(--bg)";
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) handleFileUpload(file);
-                  }}
-                >
-                  <motion.div
-                    animate={{ y: [0, -5, 0] }}
-                    transition={{ repeat: Infinity, duration: 2.6, ease: "easeInOut" }}
-                  >
-                    <UploadCloud
-                      size={48}
-                      strokeWidth={1.4}
-                      style={{ color: "var(--morandi-sage)" }}
-                    />
-                  </motion.div>
-
-                  <div className="text-center px-4">
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={lang + "-upload"}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>
-                          {t.uploadTitle}
-                        </p>
-                        <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                          {t.uploadSub}
-                        </p>
-                        <p
-                          className="mt-3 text-xs px-3 py-1 rounded-full inline-block"
-                          style={{ background: "var(--morandi-sage)", color: "#fff", opacity: 0.85 }}
-                        >
-                          {t.uploadClick}
-                        </p>
-                      </motion.div>
-                    </AnimatePresence>
-                  </div>
-
-                  <input
-                    id="file-upload"
-                    type="file"
-                    accept="image/*,video/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleFileUpload(file);
-                    }}
-                  />
-                </label>
-
                 <AnimatePresence mode="wait">
-                  <motion.p
-                    key={lang + "-coming"}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="mt-4 text-center text-xs"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {t.uploadComing}
-                  </motion.p>
+                  {uploadedImage ? (
+                    /* ── Preview state ── */
+                    <motion.div
+                      key="preview"
+                      initial={{ opacity: 0, scale: 0.97 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.97 }}
+                      transition={{ duration: 0.2 }}
+                      className="relative"
+                    >
+                      <img
+                        src={uploadedImage.previewUrl}
+                        alt="pattern preview"
+                        className="w-full object-contain rounded-2xl"
+                        style={{ maxHeight: "220px", border: "1.5px solid var(--border)" }}
+                      />
+                      <button
+                        onClick={() => setUploadedImage(null)}
+                        className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold"
+                        style={{
+                          background: "rgba(0,0,0,0.45)",
+                          color: "#fff",
+                          border: "none",
+                          cursor: "pointer",
+                          lineHeight: 0,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </motion.div>
+                  ) : (
+                    /* ── Drop zone ── */
+                    <motion.label
+                      key="dropzone"
+                      htmlFor="file-upload"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex flex-col items-center justify-center gap-4 w-full cursor-pointer transition-all duration-200"
+                      style={{
+                        minHeight:    "220px",
+                        border:       "2px dashed var(--morandi-sage)",
+                        borderRadius: "1.5rem",
+                        background:   "var(--bg)",
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.style.borderColor = "var(--morandi-pink)";
+                        e.currentTarget.style.background  = "var(--bg-card)";
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.style.borderColor = "var(--morandi-sage)";
+                        e.currentTarget.style.background  = "var(--bg)";
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.style.borderColor = "var(--morandi-sage)";
+                        e.currentTarget.style.background  = "var(--bg)";
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleFileUpload(file);
+                      }}
+                    >
+                      <motion.div
+                        animate={{ y: [0, -5, 0] }}
+                        transition={{ repeat: Infinity, duration: 2.6, ease: "easeInOut" }}
+                      >
+                        <UploadCloud size={48} strokeWidth={1.4} style={{ color: "var(--morandi-sage)" }} />
+                      </motion.div>
+                      <div className="text-center px-4">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={lang + "-upload"}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t.uploadTitle}</p>
+                            <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{t.uploadSub}</p>
+                            <p
+                              className="mt-3 text-xs px-3 py-1 rounded-full inline-block"
+                              style={{ background: "var(--morandi-sage)", color: "#fff", opacity: 0.85 }}
+                            >
+                              {t.uploadClick}
+                            </p>
+                          </motion.div>
+                        </AnimatePresence>
+                      </div>
+                      <input
+                        id="file-upload"
+                        type="file"
+                        accept="image/*,application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file);
+                        }}
+                      />
+                    </motion.label>
+                  )}
+                </AnimatePresence>
+
+                {/* Convert button — only shown after image is selected */}
+                <AnimatePresence>
+                  {uploadedImage && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <motion.button
+                        onClick={handleConvert}
+                        disabled={isLoading}
+                        whileHover={isLoading ? {} : { scale: 1.05 }}
+                        whileTap={isLoading ? {} : { scale: 0.95 }}
+                        animate={isLoading ? { opacity: [1, 0.55, 1] } : { opacity: 1 }}
+                        transition={
+                          isLoading
+                            ? { opacity: { repeat: Infinity, duration: 1.4, ease: "easeInOut" } }
+                            : { type: "spring", stiffness: 380, damping: 16 }
+                        }
+                        className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
+                        style={{
+                          background:   "var(--morandi-pink)",
+                          color:        "#fff",
+                          borderRadius: RADIUS,
+                          boxShadow:    "0 4px 20px -6px rgba(231,200,197,0.7)",
+                          cursor:       isLoading ? "not-allowed" : "pointer",
+                          border:       "none",
+                        }}
+                      >
+                        <AnimatePresence mode="wait">
+                          <motion.span
+                            key={isLoading ? "loading" : lang + "-img-btn"}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.18 }}
+                            className="block"
+                          >
+                            {isLoading ? t.loadingBtn : t.convertBtn}
+                          </motion.span>
+                        </AnimatePresence>
+                      </motion.button>
+                    </motion.div>
+                  )}
                 </AnimatePresence>
               </motion.div>
             )}
