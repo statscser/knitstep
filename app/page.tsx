@@ -16,6 +16,7 @@ interface Step {
   checked: boolean;
   isHeader?: boolean;
   count?: number;
+  subCount?: number;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────
@@ -201,6 +202,14 @@ export default function Home() {
   function toggleStep(id: number) {
     setSteps((prev) =>
       prev.map((s) => (s.id === id ? { ...s, checked: !s.checked } : s))
+    );
+  }
+
+  function updateSubCount(id: number, delta: number) {
+    setSteps((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, subCount: Math.max(0, (s.subCount ?? 0) + delta) } : s
+      )
     );
   }
 
@@ -588,6 +597,7 @@ export default function Home() {
                       step={step}
                       index={i}
                       onToggle={() => toggleStep(step.id)}
+                      onSubCountChange={(delta) => updateSubCount(step.id, delta)}
                     />
                   ))}
                 </ul>
@@ -696,14 +706,22 @@ function KnitLogo() {
 
 // ─── StepItem ────────────────────────────────────────────────────────────────
 
+const REPEAT_RE = /\b(repeat|times)\b|\brows?\s+\d+[-–]\d+\b|\d+[-–]\d+\s*行|\d{2,}\s*行|重复/i;
+
+function isRepeatableStep(step: Step): boolean {
+  return (!!step.count && step.count > 1) || REPEAT_RE.test(step.text);
+}
+
 function StepItem({
   step,
   index,
   onToggle,
+  onSubCountChange,
 }: {
   step: Step;
   index: number;
   onToggle: () => void;
+  onSubCountChange: (delta: number) => void;
 }) {
   // Header rows: no checkbox, distinct background, non-interactive
   if (step.isHeader) {
@@ -801,6 +819,35 @@ function StepItem({
           >
             ×{step.count} rows
           </span>
+        )}
+
+        {isRepeatableStep(step) && (
+          <div
+            className="mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
+            style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); onSubCountChange(-1); }}
+              className="w-5 h-5 flex items-center justify-center rounded-full text-sm font-bold"
+              style={{ color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
+            >
+              −
+            </button>
+            <span
+              className="text-xs font-semibold min-w-[1.25rem] text-center tabular-nums"
+              style={{ color: "var(--text-main)" }}
+            >
+              {step.subCount ?? 0}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onSubCountChange(+1); }}
+              className="w-5 h-5 flex items-center justify-center rounded-full text-sm font-bold"
+              style={{ color: "var(--morandi-pink)", background: "transparent", border: "none", cursor: "pointer" }}
+            >
+              +
+            </button>
+          </div>
         )}
       </div>
     </motion.li>
