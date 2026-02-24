@@ -862,39 +862,50 @@ function StepItem({
       {/* Sub-row counter — pinned to the far right */}
       {repeatable && (
         <div
-          className="shrink-0 flex items-center gap-1 rounded-full px-2 py-1"
-          style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
+          className="shrink-0 flex items-center gap-1.5 rounded-2xl px-2.5 py-1"
+          style={{
+            background: atMax ? "var(--morandi-green)" : "var(--bg-card)",
+            border:     `2px solid ${atMax ? "var(--morandi-green)" : "var(--morandi-stone)"}`,
+            boxShadow:  "0 2px 8px -3px rgba(0,0,0,0.10)",
+            transition: "background 0.3s, border-color 0.3s",
+          }}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <button
             onClick={(e) => { e.stopPropagation(); onSubCountChange(-1); }}
             disabled={subCurrent <= 0}
-            className="w-5 h-5 flex items-center justify-center text-sm font-bold"
+            className="w-6 h-6 flex items-center justify-center rounded-full text-sm font-bold"
             style={{
               color:      subCurrent <= 0 ? "var(--border)" : "var(--text-muted)",
-              background: "transparent",
+              background: subCurrent <= 0 ? "transparent" : "var(--bg)",
               border:     "none",
               cursor:     subCurrent <= 0 ? "default" : "pointer",
+              boxShadow:  subCurrent <= 0 ? "none" : "0 1px 4px -1px rgba(0,0,0,0.12)",
+              padding:    0,
+              lineHeight: 0,
             }}
           >
             −
           </button>
           <span
-            className="text-xs font-semibold min-w-[2.5rem] text-center tabular-nums"
-            style={{ color: atMax ? "var(--morandi-green)" : "var(--text-main)" }}
+            className="text-sm font-bold min-w-[3rem] text-center tabular-nums"
+            style={{ color: atMax ? "#fff" : "var(--text-main)" }}
           >
             {subCurrent}{max !== null ? `/${max}` : ""}
           </span>
           <button
             onClick={(e) => { e.stopPropagation(); onSubCountChange(+1); }}
             disabled={atMax}
-            className="w-5 h-5 flex items-center justify-center text-sm font-bold"
+            className="w-6 h-6 flex items-center justify-center rounded-full text-sm font-bold"
             style={{
-              color:      atMax ? "var(--border)" : "var(--morandi-pink)",
-              background: "transparent",
+              color:      atMax ? "rgba(255,255,255,0.45)" : "#fff",
+              background: "var(--morandi-pink)",
               border:     "none",
               cursor:     atMax ? "default" : "pointer",
+              boxShadow:  atMax ? "none" : "0 1px 4px -1px rgba(0,0,0,0.18)",
+              padding:    0,
+              lineHeight: 0,
             }}
           >
             +
