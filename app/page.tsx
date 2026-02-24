@@ -201,15 +201,26 @@ export default function Home() {
 
   function toggleStep(id: number) {
     setSteps((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, checked: !s.checked } : s))
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        return { ...s, checked: !s.checked };
+      })
     );
   }
 
   function updateSubCount(id: number, delta: number) {
     setSteps((prev) =>
-      prev.map((s) =>
-        s.id === id ? { ...s, subCount: Math.max(0, (s.subCount ?? 0) + delta) } : s
-      )
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        const max = parseMaxCount(s);
+        const raw = (s.subCount ?? 0) + delta;
+        const capped = max !== null ? Math.min(max, Math.max(0, raw)) : Math.max(0, raw);
+        return {
+          ...s,
+          subCount: capped,
+          checked: max !== null && capped >= max ? true : s.checked,
+        };
+      })
     );
   }
 
@@ -706,10 +717,31 @@ function KnitLogo() {
 
 // ─── StepItem ────────────────────────────────────────────────────────────────
 
-const REPEAT_RE = /\b(repeat|times)\b|\brows?\s+\d+[-–]\d+\b|\d+[-–]\d+\s*行|\d{2,}\s*行|重复/i;
+const REPEAT_RE = /\b(repeat|times)\b|\brows?\s+\d+[-–]\d+\b|\d+[-–]\d+\s*行|\d{2,}\s*行|\d+\s+rows?\b|重复/i;
 
 function isRepeatableStep(step: Step): boolean {
   return (!!step.count && step.count > 1) || REPEAT_RE.test(step.text);
+}
+
+function parseMaxCount(step: Step): number | null {
+  if (step.count && step.count > 1) return step.count;
+  const t = step.text;
+  // Chinese "X-Y行" range → Y - X + 1
+  let m = t.match(/(\d+)[-–](\d+)\s*行/);
+  if (m) return parseInt(m[2], 10) - parseInt(m[1], 10) + 1;
+  // English "rows X-Y" range → Y - X + 1
+  m = t.match(/\brows?\s+(\d+)[-–](\d+)\b/i);
+  if (m) return parseInt(m[2], 10) - parseInt(m[1], 10) + 1;
+  // "N times" (English)
+  m = t.match(/\b(\d+)\s+times?\b/i);
+  if (m) return parseInt(m[1], 10);
+  // "N rows" in English (e.g. "For the next 10 rows")
+  m = t.match(/\b(\d+)\s+rows?\b/i);
+  if (m) return parseInt(m[1], 10);
+  // Chinese "N行" (e.g. "接下来的20行")
+  const allRowNums = [...t.matchAll(/(\d+)\s*行/g)];
+  if (allRowNums.length > 0) return parseInt(allRowNums[allRowNums.length - 1][1], 10);
+  return null;
 }
 
 function StepItem({
@@ -723,6 +755,11 @@ function StepItem({
   onToggle: () => void;
   onSubCountChange: (delta: number) => void;
 }) {
+  const repeatable  = isRepeatableStep(step);
+  const max         = repeatable ? parseMaxCount(step) : null;
+  const subCurrent  = step.subCount ?? 0;
+  const atMax       = max !== null && subCurrent >= max;
+
   // Header rows: no checkbox, distinct background, non-interactive
   if (step.isHeader) {
     return (
@@ -759,7 +796,7 @@ function StepItem({
       whileHover={{ y: -1 }}
       whileTap={{ scale: 0.985 }}
       onClick={onToggle}
-      className="flex items-start gap-3 px-5 py-4 cursor-pointer select-none"
+      className="flex items-center gap-3 px-5 py-4 cursor-pointer select-none"
       style={{
         background:   step.checked ? "var(--bg)" : "var(--bg-card)",
         border:       `1.5px solid ${step.checked ? "var(--border)" : "var(--morandi-stone)"}`,
@@ -772,7 +809,7 @@ function StepItem({
       <motion.span
         animate={step.checked ? { scale: [1, 1.3, 1] } : { scale: 1 }}
         transition={{ duration: 0.28 }}
-        className="shrink-0 mt-0.5"
+        className="shrink-0"
       >
         {step.checked ? (
           <CheckCircle2 size={22} strokeWidth={1.8} style={{ color: "var(--morandi-green)" }} />
@@ -820,36 +857,50 @@ function StepItem({
             ×{step.count} rows
           </span>
         )}
-
-        {isRepeatableStep(step) && (
-          <div
-            className="mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
-            style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={(e) => { e.stopPropagation(); onSubCountChange(-1); }}
-              className="w-5 h-5 flex items-center justify-center rounded-full text-sm font-bold"
-              style={{ color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
-            >
-              −
-            </button>
-            <span
-              className="text-xs font-semibold min-w-[1.25rem] text-center tabular-nums"
-              style={{ color: "var(--text-main)" }}
-            >
-              {step.subCount ?? 0}
-            </span>
-            <button
-              onClick={(e) => { e.stopPropagation(); onSubCountChange(+1); }}
-              className="w-5 h-5 flex items-center justify-center rounded-full text-sm font-bold"
-              style={{ color: "var(--morandi-pink)", background: "transparent", border: "none", cursor: "pointer" }}
-            >
-              +
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* Sub-row counter — pinned to the far right */}
+      {repeatable && (
+        <div
+          className="shrink-0 flex items-center gap-1 rounded-full px-2 py-1"
+          style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); onSubCountChange(-1); }}
+            disabled={subCurrent <= 0}
+            className="w-5 h-5 flex items-center justify-center text-sm font-bold"
+            style={{
+              color:      subCurrent <= 0 ? "var(--border)" : "var(--text-muted)",
+              background: "transparent",
+              border:     "none",
+              cursor:     subCurrent <= 0 ? "default" : "pointer",
+            }}
+          >
+            −
+          </button>
+          <span
+            className="text-xs font-semibold min-w-[2.5rem] text-center tabular-nums"
+            style={{ color: atMax ? "var(--morandi-green)" : "var(--text-main)" }}
+          >
+            {subCurrent}{max !== null ? `/${max}` : ""}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onSubCountChange(+1); }}
+            disabled={atMax}
+            className="w-5 h-5 flex items-center justify-center text-sm font-bold"
+            style={{
+              color:      atMax ? "var(--border)" : "var(--morandi-pink)",
+              background: "transparent",
+              border:     "none",
+              cursor:     atMax ? "default" : "pointer",
+            }}
+          >
+            +
+          </button>
+        </div>
+      )}
     </motion.li>
   );
 }

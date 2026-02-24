@@ -19,7 +19,7 @@ export async function parsePatternAction(text: string, language: 'zh' | 'en', re
        1. 必须保留原始行号标签（例如 "Row 5:"或者"R5" 翻译为 "第5行:"）。
        2. 翻译要专业，同时在括号中保留关键术语（例如：空针 (yo), 左上二并一 (k2tog)）。
        3. 严禁自行发明或修改针法逻辑，必须忠实于原稿。
-       4. 如果是行数范围（如 Rows 1-4），请写为 "第1-4行: [重复动作]"。
+       4. 如果原文明确写出了行数范围（如 Rows 1-4），请写为 "第1-4行: [重复动作]"。如果原文说 "for the next N rows"，请写为 "接下来的N行: [重复动作]"，不要转换为具体行数范围格式。
 
        【返回格式】：
        只返回 JSON：{"steps":[{"text":"第X行: 翻译后的指令", "original": "Row X: original instruction verbatim"}]}
@@ -32,7 +32,7 @@ export async function parsePatternAction(text: string, language: 'zh' | 'en', re
        [RULES]:
        1. Extract ALL instructions — including cast-on, bind-off, setup rows, and any row instructions.
        2. Keep existing row labels if present (e.g., "Row 5:", "R3:"). If none exist, write a concise step description.
-       3. For a block like "for the next N rows: odd rows do X, even rows do Y", keep it as ONE step (e.g., "Rows 1–10: knit odd rows, purl even rows"). Do NOT split the same row range into multiple steps.
+       3. For a block like "for the next N rows: do X", keep it as ONE step using the original phrasing (e.g., "For the next 10 rows: knit odd rows, purl even rows"). Do NOT convert "next N rows" phrasing into a numbered range like "Rows 1–10". Do NOT split the same block into multiple steps.
        4. Do NOT skip or omit any instruction, even if it lacks a row label.
        5. ONLY use the pattern text below. Do NOT invent any steps.
        Return JSON only: {"steps":[{"text":"instruction here"}]}
