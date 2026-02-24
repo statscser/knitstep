@@ -22,16 +22,23 @@ export async function parsePatternAction(text: string, language: 'zh' | 'en', re
        4. 如果是行数范围（如 Rows 1-4），请写为 "第1-4行: [重复动作]"。
 
        【返回格式】：
-       只返回 JSON：{"steps":[{"text":"第X行: 翻译后的指令 (Original Instruction)"}]}
-       
+       只返回 JSON：{"steps":[{"text":"第X行: 翻译后的指令", "original": "Row X: original instruction verbatim"}]}
+       text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
+
        图解文本如下：
        ${text}`
-    : `You are a strict knitting pattern extractor. 
-       [CRITICAL RULES]:
-       1. EXTRACT instructions verbatim. Keep all row labels (e.g., "Row 5:").
-       2. Do NOT rewrite or "improve" the pattern logic.
-       3. For row ranges (e.g., "Rows 1-4"), clearly state the range.
-       Return JSON only: {"steps":[{"text":"Row X: exact instruction content"}]}`;
+    : `You are a professional knitting pattern parser.
+       Parse the following knitting pattern text into clear, actionable checklist steps.
+       [RULES]:
+       1. Extract ALL instructions — including cast-on, bind-off, setup rows, and any row instructions.
+       2. Keep existing row labels if present (e.g., "Row 5:", "R3:"). If none exist, write a concise step description.
+       3. For a block like "for the next N rows: odd rows do X, even rows do Y", keep it as ONE step (e.g., "Rows 1–10: knit odd rows, purl even rows"). Do NOT split the same row range into multiple steps.
+       4. Do NOT skip or omit any instruction, even if it lacks a row label.
+       5. ONLY use the pattern text below. Do NOT invent any steps.
+       Return JSON only: {"steps":[{"text":"instruction here"}]}
+
+       Pattern:
+       ${text}`;
 
   try {
     const result = await model.generateContent(prompt);

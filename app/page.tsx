@@ -12,6 +12,7 @@ type Lang = "zh" | "en";
 interface Step {
   id: number;
   text: string;
+  original?: string;
   checked: boolean;
   isHeader?: boolean;
   count?: number;
@@ -169,8 +170,9 @@ export default function Home() {
       const result = await parsePatternAction(inputText, lang);
       const parsed: Step[] = (result.steps as any[]).map((s, idx) => ({
         // ⚠️ 关键修复：使用 Date.now() + idx 确保 ID 绝对唯一，强制 React 刷新 UI
-        id:       Date.now() + idx, 
+        id:       Date.now() + idx,
         text:     s.text,
+        original: s.original,
         checked:  false,
         isHeader: s.isHeader,
         count:    s.count,
@@ -773,6 +775,20 @@ function StepItem({
         >
           {step.text}
         </span>
+
+        {step.original && (
+          <p
+            className="mt-0.5 text-xs leading-snug"
+            style={{
+              color:          "var(--text-muted)",
+              opacity:        step.checked ? 0.5 : 0.7,
+              textDecoration: step.checked ? "line-through" : "none",
+              transition:     "color 0.2s, opacity 0.2s",
+            }}
+          >
+            {step.original}
+          </p>
+        )}
 
         {step.count && step.count > 1 && (
           <span
