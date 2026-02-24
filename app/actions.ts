@@ -81,9 +81,22 @@ export async function parsePatternAction(
                     : msgLower.includes('request') ? 'RPM (requests/min)'
                     : 'unknown limit type';
 
+    // Detect daily quota (retrying is pointless — resets tomorrow)
+    const violations = (errDetails ?? []).flatMap((d: any) => d.violations ?? []);
+    const isDailyQuota = violations.some((v: any) =>
+      (v.quotaId ?? '').toLowerCase().includes('perday')
+    );
+
+    // Use API-suggested retry delay if provided
+    const retryInfo = (errDetails ?? []).find((d: any) =>
+      (d['@type'] ?? '').includes('RetryInfo')
+    );
+    const apiDelaySec = retryInfo?.retryDelay ? parseInt(retryInfo.retryDelay) : null;
+
     console.error('─── Gemini 429 diagnostic ───────────────────────────────');
     console.error('HTTP status  :', httpStatus);
-    console.error('Limit kind   :', limitKind);
+    console.error('Limit kind   :', limitKind, isDailyQuota ? '(DAILY — no retry)' : '');
+    console.error('API retry in :', apiDelaySec != null ? `${apiDelaySec}s` : 'not specified');
     console.error('Message      :', errMessage);
     console.error('errorDetails :', JSON.stringify(errDetails, null, 2));
     console.error('retryCount   :', retryCount);
@@ -91,8 +104,8 @@ export async function parsePatternAction(
     console.error('─────────────────────────────────────────────────────────');
 
     const is429 = httpStatus === 429 || errMessage.includes('429');
-    if (is429 && retryCount < 3) {
-      const wait = Math.pow(2, retryCount + 1) * 1000;
+    if (is429 && !isDailyQuota && retryCount < 3) {
+      const wait = apiDelaySec != null ? apiDelaySec * 1000 : Math.pow(2, retryCount + 1) * 1000;
       console.log(`⚠️ Rate-limited (${limitKind}). Retry ${retryCount + 1}/3 in ${wait / 1000}s…`);
       await sleep(wait);
       return parsePatternAction(text, language, retryCount + 1, imageBase64, imageMimeType);
