@@ -5,6 +5,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 const MODEL_NAME = "gemini-2.5-flash"
 
+// Deduplication guard — prevents simultaneous calls in the same server process
+let inFlight = false;
+
 // 辅助函数：等待一段时间
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -16,6 +19,15 @@ export async function parsePatternAction(
   imageMimeType?: string,
 ) {
   if (!process.env.GEMINI_API_KEY) throw new Error('API_KEY_MISSING');
+
+  // Only block duplicate top-level calls, not retries
+  if (retryCount === 0) {
+    if (inFlight) {
+      console.warn('⚠️ parsePatternAction called while already in-flight — ignoring duplicate.');
+      throw new Error("UNKNOWN_ERROR");
+    }
+    inFlight = true;
+  }
 
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
@@ -53,16 +65,40 @@ export async function parsePatternAction(
     const raw = response.text().trim();
     const jsonStart = raw.indexOf('{');
     const jsonEnd = raw.lastIndexOf('}');
-    return JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+    const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+    inFlight = false;
+    return parsed;
 
   } catch (error: any) {
-    if (error.status === 429 && retryCount < 3) {
-      console.log(`⚠️ 触发频率限制，正在进行第 ${retryCount + 1} 次重试...`);
-      await sleep(Math.pow(2, retryCount + 1) * 1000);
+    // ── Full diagnostic dump ──────────────────────────────────────────────────
+    const httpStatus   = error.status ?? error.response?.status ?? 'unknown';
+    const errMessage   = error.message ?? '';
+    const errDetails   = error.errorDetails ?? error.response?.data ?? null;
+
+    // Detect TPM vs RPM from the error message / details
+    const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? '').toLowerCase();
+    const limitKind = msgLower.includes('token') ? 'TPM (tokens/min)'
+                    : msgLower.includes('request') ? 'RPM (requests/min)'
+                    : 'unknown limit type';
+
+    console.error('─── Gemini 429 diagnostic ───────────────────────────────');
+    console.error('HTTP status  :', httpStatus);
+    console.error('Limit kind   :', limitKind);
+    console.error('Message      :', errMessage);
+    console.error('errorDetails :', JSON.stringify(errDetails, null, 2));
+    console.error('retryCount   :', retryCount);
+    console.error('isImage      :', !!imageBase64, '| mimeType:', imageMimeType ?? 'n/a');
+    console.error('─────────────────────────────────────────────────────────');
+
+    const is429 = httpStatus === 429 || errMessage.includes('429');
+    if (is429 && retryCount < 3) {
+      const wait = Math.pow(2, retryCount + 1) * 1000;
+      console.log(`⚠️ Rate-limited (${limitKind}). Retry ${retryCount + 1}/3 in ${wait / 1000}s…`);
+      await sleep(wait);
       return parsePatternAction(text, language, retryCount + 1, imageBase64, imageMimeType);
     }
 
-    console.error('Gemini Error:', error);
-    throw new Error(error.status === 429 ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
+    inFlight = false;
+    throw new Error(is429 ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
   }
 }
