@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText } from "lucide-react";
 import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,9 +35,11 @@ const dict = {
     errorModel:     "模型暂不可用，请稍后重试。",
     errorUnknown:   "解析失败，请稍后重试。",
     compressing:    "正在压缩图片...",
-    uploadTitle:    "拖拽图片或视频到这里",
+    uploadTitle:    "拖拽图片或 PDF 到这里",
     uploadSub:      "KnitStep 帮你识别编织步骤",
-    uploadClick:    "或点击选择文件",
+    uploadClick:    "选择图片 / PDF 或拍照",
+    uploadCamera:   "支持直接拍照，也可上传 PDF 文件",
+    uploadPdfReady: "PDF 已就绪",
     uploadComing:   "🔜 AI 识别功能即将上线，敬请期待",
     checklistTitle: "步骤清单",
     noMatch:        "未识别到编织行指令。",
@@ -58,9 +60,11 @@ const dict = {
     errorModel:     "Model unavailable. Please try again later.",
     errorUnknown:   "Parsing failed. Please try again.",
     compressing:    "Compressing image...",
-    uploadTitle:    "Drag an image or video here",
+    uploadTitle:    "Drag an image or PDF here",
     uploadSub:      "KnitStep will recognize your knitting steps",
-    uploadClick:    "or click to browse files",
+    uploadClick:    "Browse Files or Take Photo",
+    uploadCamera:   "Supports images, PDFs, and camera",
+    uploadPdfReady: "PDF ready",
     uploadComing:   "🔜 AI recognition coming soon, stay tuned!",
     checklistTitle: "Checklist",
     noMatch:        "No knitting row instructions detected.",
@@ -560,12 +564,26 @@ export default function Home() {
                       transition={{ duration: 0.2 }}
                       className="relative"
                     >
-                      <img
-                        src={uploadedImage.previewUrl}
-                        alt="pattern preview"
-                        className="w-full object-contain rounded-2xl"
-                        style={{ maxHeight: "220px", border: "1.5px solid var(--border)" }}
-                      />
+                      {uploadedImage.mimeType === "application/pdf" ? (
+                        /* ── PDF preview ── */
+                        <div
+                          className="w-full flex flex-col items-center justify-center gap-3 rounded-2xl py-10"
+                          style={{ border: "1.5px solid var(--border)", background: "var(--bg)" }}
+                        >
+                          <FileText size={48} strokeWidth={1.3} style={{ color: "var(--morandi-sage)" }} />
+                          <p className="text-sm font-medium" style={{ color: "var(--text-main)" }}>
+                            {t.uploadPdfReady}
+                          </p>
+                        </div>
+                      ) : (
+                        /* ── Image preview ── */
+                        <img
+                          src={uploadedImage.previewUrl}
+                          alt="pattern preview"
+                          className="w-full object-contain rounded-2xl"
+                          style={{ maxHeight: "220px", border: "1.5px solid var(--border)" }}
+                        />
+                      )}
                       <button
                         onClick={() => setUploadedImage(null)}
                         className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold"
@@ -630,12 +648,15 @@ export default function Home() {
                           >
                             <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t.uploadTitle}</p>
                             <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{t.uploadSub}</p>
-                            <p
-                              className="mt-3 text-xs px-3 py-1 rounded-full inline-block"
-                              style={{ background: "var(--morandi-sage)", color: "#fff", opacity: 0.85 }}
+                            {/* Thumb-sized tap target: min 44px height via py-3 */}
+                            <span
+                              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-full"
+                              style={{ background: "var(--morandi-sage)", color: "#fff", minHeight: "44px" }}
                             >
+                              <Camera size={16} strokeWidth={2} />
+                              <FileText size={15} strokeWidth={2} />
                               {t.uploadClick}
-                            </p>
+                            </span>
                           </motion.div>
                         </AnimatePresence>
                       </div>
