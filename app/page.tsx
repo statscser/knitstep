@@ -1179,7 +1179,7 @@ function StepItem({
       whileHover={editing ? undefined : { y: -1 }}
       whileTap={editing ? undefined : { scale: 0.985 }}
       onClick={editing ? undefined : onToggle}
-      className="print-step flex items-center gap-3 px-5 py-4 cursor-pointer select-none"
+      className="print-step flex items-start gap-3 px-5 py-4 cursor-pointer select-none"
       data-checked={step.checked}
       style={{
         background:   editing
@@ -1197,7 +1197,7 @@ function StepItem({
       <motion.span
         animate={step.checked ? { scale: [1, 1.3, 1] } : { scale: 1 }}
         transition={{ duration: 0.28 }}
-        className="shrink-0"
+        className="shrink-0 mt-[3px]"
         onClick={(e) => { if (editing) e.stopPropagation(); }}
       >
         {step.checked ? (
@@ -1207,8 +1207,8 @@ function StepItem({
         )}
       </motion.span>
 
-      {/* Text block */}
-      <div className="flex-1 min-w-0">
+      {/* Text + counter wrapper: row on wide screens, column on mobile */}
+      <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex-1 min-w-0">
 
           {/* ── Edit input / display text ── */}
@@ -1283,61 +1283,60 @@ function StepItem({
           )}
         </div>
 
+        {/* Sub-row counter — below text on mobile, right side on wider screens */}
+        {repeatable && (
+          <div
+            className="no-print shrink-0 self-start sm:self-auto flex items-center gap-1.5 rounded-2xl px-2.5 py-1"
+            style={{
+              background: atMax ? "var(--morandi-green)" : "var(--bg-card)",
+              border:     `2px solid ${atMax ? "var(--morandi-green)" : "var(--morandi-stone)"}`,
+              boxShadow:  "0 2px 8px -3px rgba(0,0,0,0.10)",
+              transition: "background 0.3s, border-color 0.3s",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); onSubCountChange(-1); }}
+              disabled={subCurrent <= 0}
+              className="w-6 h-6 flex items-center justify-center rounded-full text-sm font-bold"
+              style={{
+                color:      subCurrent <= 0 ? "var(--border)" : "var(--text-muted)",
+                background: subCurrent <= 0 ? "transparent" : "var(--bg)",
+                border:     "none",
+                cursor:     subCurrent <= 0 ? "default" : "pointer",
+                boxShadow:  subCurrent <= 0 ? "none" : "0 1px 4px -1px rgba(0,0,0,0.12)",
+                padding:    0,
+                lineHeight: 0,
+              }}
+            >
+              −
+            </button>
+            <span
+              className="text-sm font-bold min-w-[3rem] text-center tabular-nums"
+              style={{ color: atMax ? "#fff" : "var(--text-main)" }}
+            >
+              {subCurrent}{max !== null ? `/${max}` : ""}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onSubCountChange(+1); }}
+              disabled={atMax}
+              className="w-6 h-6 flex items-center justify-center rounded-full text-sm font-bold"
+              style={{
+                color:      atMax ? "rgba(255,255,255,0.45)" : "#fff",
+                background: "var(--morandi-pink)",
+                border:     "none",
+                cursor:     atMax ? "default" : "pointer",
+                boxShadow:  atMax ? "none" : "0 1px 4px -1px rgba(0,0,0,0.18)",
+                padding:    0,
+                lineHeight: 0,
+              }}
+            >
+              +
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* Sub-row counter — pinned to the far right */}
-      {repeatable && (
-        <div
-          className="no-print shrink-0 flex items-center gap-1.5 rounded-2xl px-2.5 py-1"
-          style={{
-            background: atMax ? "var(--morandi-green)" : "var(--bg-card)",
-            border:     `2px solid ${atMax ? "var(--morandi-green)" : "var(--morandi-stone)"}`,
-            boxShadow:  "0 2px 8px -3px rgba(0,0,0,0.10)",
-            transition: "background 0.3s, border-color 0.3s",
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); onSubCountChange(-1); }}
-            disabled={subCurrent <= 0}
-            className="w-6 h-6 flex items-center justify-center rounded-full text-sm font-bold"
-            style={{
-              color:      subCurrent <= 0 ? "var(--border)" : "var(--text-muted)",
-              background: subCurrent <= 0 ? "transparent" : "var(--bg)",
-              border:     "none",
-              cursor:     subCurrent <= 0 ? "default" : "pointer",
-              boxShadow:  subCurrent <= 0 ? "none" : "0 1px 4px -1px rgba(0,0,0,0.12)",
-              padding:    0,
-              lineHeight: 0,
-            }}
-          >
-            −
-          </button>
-          <span
-            className="text-sm font-bold min-w-[3rem] text-center tabular-nums"
-            style={{ color: atMax ? "#fff" : "var(--text-main)" }}
-          >
-            {subCurrent}{max !== null ? `/${max}` : ""}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); onSubCountChange(+1); }}
-            disabled={atMax}
-            className="w-6 h-6 flex items-center justify-center rounded-full text-sm font-bold"
-            style={{
-              color:      atMax ? "rgba(255,255,255,0.45)" : "#fff",
-              background: "var(--morandi-pink)",
-              border:     "none",
-              cursor:     atMax ? "default" : "pointer",
-              boxShadow:  atMax ? "none" : "0 1px 4px -1px rgba(0,0,0,0.18)",
-              padding:    0,
-              lineHeight: 0,
-            }}
-          >
-            +
-          </button>
-        </div>
-      )}
     </motion.li>
   );
 }
