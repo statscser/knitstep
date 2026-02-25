@@ -22,3 +22,123 @@ body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
 }
+
+/* ─── Print-only elements: hidden on screen ──────────────────────────────── */
+.print-footer {
+  display: none;
+}
+
+/* ─── Print styles ────────────────────────────────────────────────────────── */
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm 15mm;
+  }
+
+  /* Freeze all JS-driven animations at their end state */
+  *, *::before, *::after {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+
+  body {
+    background: white !important;
+    color: #111 !important;
+    font-size: 10.5pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Hide screen-only UI ── */
+  .no-print { display: none !important; }
+
+  /* ── Main page wrapper: flush to top, no bg ── */
+  .print-container {
+    display: block !important;
+    min-height: auto !important;
+    padding: 0 !important;
+    background: white !important;
+    align-items: initial !important;
+  }
+
+  /* ── App header: centred, clean ── */
+  .print-header {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    margin-bottom: 14pt !important;
+    gap: 2pt !important;
+  }
+  .print-header h1 { font-size: 18pt !important; color: #111 !important; }
+
+  /* ── Results card: strip card chrome, full page width ── */
+  .print-results-card {
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Checklist title */
+  .print-section-title {
+    color: #333 !important;
+    font-size: 8.5pt !important;
+  }
+
+  /* Progress counter badge */
+  .print-count-badge {
+    background: white !important;
+    color: #333 !important;
+    border-color: #ccc !important;
+  }
+
+  /* ── Step rows ── */
+  .print-step {
+    border: 1px solid #d1d5db !important;
+    border-radius: 3pt !important;
+    box-shadow: none !important;
+    background: white !important;
+    padding: 5pt 10pt !important;
+    margin-bottom: 3pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .print-step[data-checked="true"] {
+    background: #f9fafb !important;
+    border-color: #e5e7eb !important;
+  }
+
+  /* SVG checkbox icons: high-contrast */
+  .print-step svg { stroke: #333 !important; }
+  .print-step[data-checked="true"] svg { stroke: #9ca3af !important; }
+
+  /* Step text — unchecked: black; checked: gray + strikethrough */
+  .print-step-text {
+    color: #111 !important;
+    font-size: 10pt !important;
+  }
+  .print-step[data-checked="true"] .print-step-text {
+    color: #6b7280 !important;
+    text-decoration: line-through !important;
+  }
+
+  /* Original / translation text */
+  .print-step-text-muted { color: #6b7280 !important; font-size: 8pt !important; }
+
+  /* ── Reveal print-only elements ── */
+  .print-footer {
+    display: flex !important;
+    justify-content: space-between;
+    margin-top: 20pt;
+    padding-top: 6pt;
+    border-top: 1px solid #d1d5db;
+    font-size: 8.5pt;
+    color: #9ca3af !important;
+  }
+}
