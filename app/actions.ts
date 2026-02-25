@@ -43,6 +43,7 @@ export async function parsePatternAction(
        【返回格式】：
        只返回 JSON：{"steps":[{"text":"第X行: 翻译后的指令", "original": "Row X: original instruction verbatim"}]}
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
+       如果原文本身已经是中文，则不需要 original 字段，只返回 text 字段即可。
        ${imageBase64 ? '' : `\n       图解文本如下：\n       ${text}`}`
     : `You are a professional knitting pattern parser.
        ${imageBase64 ? 'Analyze this knitting pattern image and extract all instructions' : 'Parse the following knitting pattern text'} into clear, actionable checklist steps.
