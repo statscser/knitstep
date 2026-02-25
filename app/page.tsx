@@ -399,13 +399,13 @@ export default function Home() {
 </body>
 </html>`;
 
-    const win = window.open("", "_blank");
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-    } else {
-      // Fallback if popup blocked
-      window.print();
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      // Popup blocked (common on mobile) — navigate current window instead.
+      // The HTML auto-triggers print on load; Back returns to the app.
+      window.location.href = url;
     }
   }
 
