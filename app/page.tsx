@@ -34,6 +34,7 @@ const dict = {
     errorKey:       "API Key 无效，请检查 .env.local 文件。",
     errorModel:     "模型暂不可用，请稍后重试。",
     errorUnknown:   "解析失败，请稍后重试。",
+    compressing:    "正在压缩图片...",
     uploadTitle:    "拖拽图片或视频到这里",
     uploadSub:      "KnitStep 帮你识别编织步骤",
     uploadClick:    "或点击选择文件",
@@ -56,6 +57,7 @@ const dict = {
     errorKey:       "Invalid API key. Please check your .env.local file.",
     errorModel:     "Model unavailable. Please try again later.",
     errorUnknown:   "Parsing failed. Please try again.",
+    compressing:    "Compressing image...",
     uploadTitle:    "Drag an image or video here",
     uploadSub:      "KnitStep will recognize your knitting steps",
     uploadClick:    "or click to browse files",
@@ -82,6 +84,61 @@ function parseInput(raw: string): Step[] {
     .filter((step) => ROW_KEYWORDS.test(step.text));
 }
 
+// ─── Image compression ───────────────────────────────────────────────────────
+
+const MAX_DIMENSION = 1280;
+const JPEG_QUALITY  = 0.7;
+const MAX_B64_BYTES = 500 * 1024; // warn if base64 exceeds ~500 KB
+
+async function compressImage(
+  file: File,
+): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+
+      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        if (width >= height) {
+          height = Math.round(height * (MAX_DIMENSION / width));
+          width  = MAX_DIMENSION;
+        } else {
+          width  = Math.round(width * (MAX_DIMENSION / height));
+          height = MAX_DIMENSION;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width  = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("Canvas unavailable")); return; }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        if (!blob) { reject(new Error("Compression failed")); return; }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          const base64  = dataUrl.split(",")[1];
+          if (base64.length > MAX_B64_BYTES) {
+            console.warn(`⚠️ Compressed image still large: ${(base64.length / 1024).toFixed(0)} KB`);
+          }
+          resolve({ base64, mimeType: "image/jpeg", previewUrl: dataUrl });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      }, "image/jpeg", JPEG_QUALITY);
+    };
+
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Image load failed")); };
+    img.src = objectUrl;
+  });
+}
+
 // ─── Shared style tokens ─────────────────────────────────────────────────────
 
 const CARD_STYLE: React.CSSProperties = {
@@ -106,6 +163,7 @@ export default function Home() {
   const [uploadedImage, setUploadedImage] = useState<{
     base64: string; mimeType: string; previewUrl: string;
   } | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -159,15 +217,37 @@ export default function Home() {
 
   const t = dict[lang];
 
-  function handleFileUpload(file: File) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      const [header, base64] = dataUrl.split(',');
-      const mimeType = header.split(':')[1].split(';')[0];
-      setUploadedImage({ base64, mimeType, previewUrl: dataUrl });
-    };
-    reader.readAsDataURL(file);
+  async function handleFileUpload(file: File) {
+    if (file.type.startsWith("image/")) {
+      setIsCompressing(true);
+      try {
+        const compressed = await compressImage(file);
+        setUploadedImage(compressed);
+      } catch (err) {
+        console.error("Image compression failed, using original:", err);
+        // Fall back to raw file if compression errors
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          const [header, base64] = dataUrl.split(",");
+          const mimeType = header.split(":")[1].split(";")[0];
+          setUploadedImage({ base64, mimeType, previewUrl: dataUrl });
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setIsCompressing(false);
+      }
+    } else {
+      // PDF or other non-image — pass through as-is (Canvas cannot compress PDFs)
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mimeType = header.split(":")[1].split(";")[0];
+        setUploadedImage({ base64, mimeType, previewUrl: dataUrl });
+      };
+      reader.readAsDataURL(file);
+    }
   }
 
   async function handleConvert() {
@@ -241,7 +321,7 @@ export default function Home() {
   const doneCount      = checkableSteps.filter((s) => s.checked).length;
   const totalCount     = checkableSteps.length;
   const allDone        = totalCount > 0 && doneCount === totalCount;
-  const isDisabled = (activeTab === "text" ? inputText.trim().length === 0 : !uploadedImage) || isLoading;
+  const isDisabled = (activeTab === "text" ? inputText.trim().length === 0 : !uploadedImage) || isLoading || isCompressing;
 
   return (
     <div
@@ -444,7 +524,33 @@ export default function Home() {
                 transition={{ duration: 0.2, ease: "easeOut" }}
               >
                 <AnimatePresence mode="wait">
-                  {uploadedImage ? (
+                  {isCompressing ? (
+                    /* ── Compressing state ── */
+                    <motion.div
+                      key="compressing"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex flex-col items-center justify-center gap-3"
+                      style={{ minHeight: "220px" }}
+                    >
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ repeat: Infinity, duration: 1.1, ease: "linear" }}
+                        style={{
+                          width:       "2rem",
+                          height:      "2rem",
+                          borderRadius: "50%",
+                          border:      "2.5px solid var(--morandi-pink)",
+                          borderTopColor: "transparent",
+                        }}
+                      />
+                      <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                        {t.compressing}
+                      </p>
+                    </motion.div>
+                  ) : uploadedImage ? (
                     /* ── Preview state ── */
                     <motion.div
                       key="preview"
