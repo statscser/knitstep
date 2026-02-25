@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X } from "lucide-react";
 import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -45,6 +45,7 @@ const dict = {
     noMatch:        "未识别到编织行指令。",
     noMatchSub:     "请确认文本包含 Row、R1、knit、purl 等关键词。",
     allDone:        "🎉 全部完成！你的编织作品完工啦！",
+    editTip:        "提示：点击任意步骤文字可编辑",
     sampleText:     "用 4mm 的针起 40 针。第 1-8 行织双罗纹（K2, P2）。接下来的 20 行，单数行织全下针，双数行织全上针。",
   },
   en: {
@@ -70,6 +71,7 @@ const dict = {
     noMatch:        "No knitting row instructions detected.",
     noMatchSub:     "Make sure the text contains keywords like Row, R1, knit, purl, etc.",
     allDone:        "🎉 All done! Your knitted piece is complete!",
+    editTip:        "Tip: Tap any step text to edit.",
     sampleText:     "R1: knit all. R2: purl all. Repeat R1-R2 for 10 rows.",
   },
 } as const;
@@ -168,6 +170,7 @@ export default function Home() {
     base64: string; mimeType: string; previewUrl: string;
   } | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
+  const [tipVisible, setTipVisible]       = useState(true);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -196,6 +199,8 @@ export default function Home() {
     } else {
       setInputText(dict[restoredLang].sampleText);
     }
+
+    if (localStorage.getItem("knitstep-tip-dismissed") === "1") setTipVisible(false);
 
     hydrated.current = true;
   }, []);
@@ -319,6 +324,15 @@ export default function Home() {
         };
       })
     );
+  }
+
+  function dismissTip() {
+    setTipVisible(false);
+    localStorage.setItem("knitstep-tip-dismissed", "1");
+  }
+
+  function handleTextEdit(id: number, newText: string) {
+    setSteps((prev) => prev.map((s) => s.id === id ? { ...s, text: newText } : s));
   }
 
   const checkableSteps = steps.filter((s) => !s.isHeader);
@@ -804,6 +818,30 @@ export default function Home() {
                   />
                 </div>
 
+                {/* ── Edit tip ── */}
+                <AnimatePresence>
+                  {tipVisible && (
+                    <motion.div
+                      key="edit-tip"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center justify-between mb-4 px-3 py-2 rounded-xl text-xs font-medium"
+                      style={{ background: "#eff6ff", color: "#60a5fa" }}
+                    >
+                      <span>✏️ {t.editTip}</span>
+                      <button
+                        onClick={dismissTip}
+                        style={{ background: "none", border: "none", cursor: "pointer",
+                                 color: "#93c5fd", lineHeight: 0, padding: "2px" }}
+                      >
+                        <X size={13} strokeWidth={2} />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <ul className="flex flex-col gap-2">
                   {steps.map((step, i) => (
                     <StepItem
@@ -812,6 +850,7 @@ export default function Home() {
                       index={i}
                       onToggle={() => toggleStep(step.id)}
                       onSubCountChange={(delta) => updateSubCount(step.id, delta)}
+                      onTextEdit={(text) => handleTextEdit(step.id, text)}
                     />
                   ))}
                 </ul>
@@ -969,16 +1008,41 @@ function StepItem({
   index,
   onToggle,
   onSubCountChange,
+  onTextEdit,
 }: {
   step: Step;
   index: number;
   onToggle: () => void;
   onSubCountChange: (delta: number) => void;
+  onTextEdit: (newText: string) => void;
 }) {
-  const repeatable  = isRepeatableStep(step);
-  const max         = repeatable ? parseMaxCount(step) : null;
-  const subCurrent  = step.subCount ?? 0;
-  const atMax       = max !== null && subCurrent >= max;
+  const [editing, setEditing]   = useState(false);
+  const [editText, setEditText] = useState(step.text);
+  const inputRef                = useRef<HTMLInputElement>(null);
+
+  const repeatable = isRepeatableStep(step);
+  const max        = repeatable ? parseMaxCount(step) : null;
+  const subCurrent = step.subCount ?? 0;
+  const atMax      = max !== null && subCurrent >= max;
+
+  // Keep draft in sync when step is updated externally (e.g. new conversion)
+  useEffect(() => {
+    if (!editing) setEditText(step.text);
+  }, [step.text, editing]);
+
+  function startEdit(e: React.MouseEvent) {
+    if (step.checked) return;
+    e.stopPropagation();
+    setEditText(step.text);
+    setEditing(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function commitEdit() {
+    const trimmed = editText.trim();
+    if (trimmed && trimmed !== step.text) onTextEdit(trimmed);
+    setEditing(false);
+  }
 
   // Header rows: no checkbox, distinct background, non-interactive
   if (step.isHeader) {
@@ -995,10 +1059,7 @@ function StepItem({
         }}
       >
         <span className="text-lg">🧶</span>
-        <span
-          className="text-sm font-bold leading-snug"
-          style={{ color: "#fff" }}
-        >
+        <span className="text-sm font-bold leading-snug" style={{ color: "#fff" }}>
           {step.text}
         </span>
       </motion.li>
@@ -1013,15 +1074,19 @@ function StepItem({
         opacity: { duration: 0.25, delay: index * 0.06 },
         x: { type: "spring", stiffness: 340, damping: 26, delay: index * 0.06 },
       }}
-      whileHover={{ y: -1 }}
-      whileTap={{ scale: 0.985 }}
-      onClick={onToggle}
+      whileHover={editing ? undefined : { y: -1 }}
+      whileTap={editing ? undefined : { scale: 0.985 }}
+      onClick={editing ? undefined : onToggle}
       className="flex items-center gap-3 px-5 py-4 cursor-pointer select-none"
       style={{
-        background:   step.checked ? "var(--bg)" : "var(--bg-card)",
-        border:       `1.5px solid ${step.checked ? "var(--border)" : "var(--morandi-stone)"}`,
+        background:   editing
+          ? "rgba(239,246,255,0.7)"
+          : step.checked ? "var(--bg)" : "var(--bg-card)",
+        border: editing
+          ? "1.5px solid #bfdbfe"
+          : `1.5px solid ${step.checked ? "var(--border)" : "var(--morandi-stone)"}`,
         borderRadius: "1.25rem",
-        boxShadow:    step.checked ? "none" : "0 3px 12px -6px rgba(0,0,0,0.08)",
+        boxShadow:    editing || step.checked ? "none" : "0 3px 12px -6px rgba(0,0,0,0.08)",
         transition:   "background 0.2s, border-color 0.2s, box-shadow 0.2s",
       }}
     >
@@ -1030,6 +1095,7 @@ function StepItem({
         animate={step.checked ? { scale: [1, 1.3, 1] } : { scale: 1 }}
         transition={{ duration: 0.28 }}
         className="shrink-0"
+        onClick={(e) => { if (editing) e.stopPropagation(); }}
       >
         {step.checked ? (
           <CheckCircle2 size={22} strokeWidth={1.8} style={{ color: "var(--morandi-green)" }} />
@@ -1038,45 +1104,82 @@ function StepItem({
         )}
       </motion.span>
 
-      {/* Text + count badge */}
+      {/* Text block */}
       <div className="flex-1 min-w-0">
-        <span
-          className="text-base font-medium leading-relaxed"
-          style={{
-            color:          step.checked ? "var(--text-muted)" : "var(--text-main)",
-            textDecoration: step.checked ? "line-through" : "none",
-            transition:     "color 0.2s",
-          }}
-        >
-          {step.text}
-        </span>
+        <div className="flex-1 min-w-0">
 
-        {step.original && (
-          <p
-            className="mt-0.5 text-xs leading-snug"
-            style={{
-              color:          "var(--text-muted)",
-              opacity:        step.checked ? 0.5 : 0.7,
-              textDecoration: step.checked ? "line-through" : "none",
-              transition:     "color 0.2s, opacity 0.2s",
-            }}
-          >
-            {step.original}
-          </p>
-        )}
+          {/* ── Edit input / display text ── */}
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onBlur={commitEdit}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter")  { e.preventDefault(); commitEdit(); }
+                if (e.key === "Escape") { setEditing(false); }
+              }}
+              className="w-full text-base font-medium"
+              style={{
+                background:   "transparent",
+                border:       "1px solid #bfdbfe",
+                borderRadius: "0.5rem",
+                padding:      "1px 6px",
+                outline:      "none",
+                color:        "var(--text-main)",
+                fontFamily:   "var(--font-body)",
+                fontSize:     "1rem",
+                lineHeight:   "1.625",
+              }}
+            />
+          ) : (
+            <span
+              className="text-base font-medium leading-relaxed"
+              onClick={startEdit}
+              style={{
+                color:          step.checked ? "var(--text-muted)" : "var(--text-main)",
+                textDecoration: step.checked ? "line-through" : "none",
+                cursor:         step.checked ? "pointer" : "text",
+                transition:     "color 0.2s",
+                display:        "block",
+              }}
+            >
+              {step.text}
+            </span>
+          )}
 
-        {step.count && step.count > 1 && (
-          <span
-            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
-            style={{
-              background: "var(--morandi-pink)",
-              color:      "#fff",
-              opacity:    step.checked ? 0.5 : 0.9,
-            }}
-          >
-            ×{step.count} rows
-          </span>
-        )}
+          {/* Original text (translation) */}
+          {!editing && step.original && (
+            <p
+              className="mt-0.5 text-xs leading-snug"
+              style={{
+                color:          "var(--text-muted)",
+                opacity:        step.checked ? 0.5 : 0.7,
+                textDecoration: step.checked ? "line-through" : "none",
+                transition:     "color 0.2s, opacity 0.2s",
+              }}
+            >
+              {step.original}
+            </p>
+          )}
+
+          {/* Count badge */}
+          {!editing && step.count && step.count > 1 && (
+            <span
+              className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={{
+                background: "var(--morandi-pink)",
+                color:      "#fff",
+                opacity:    step.checked ? 0.5 : 0.9,
+              }}
+            >
+              ×{step.count} rows
+            </span>
+          )}
+        </div>
+
       </div>
 
       {/* Sub-row counter — pinned to the far right */}
