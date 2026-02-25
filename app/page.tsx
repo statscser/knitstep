@@ -920,7 +920,17 @@ function KnitLogo() {
 
 // ─── StepItem ────────────────────────────────────────────────────────────────
 
-const REPEAT_RE = /\b(repeat|times)\b|\brows?\s+\d+[-–]\d+\b|\d+[-–]\d+\s*行|\d{2,}\s*行|\d+\s+rows?\b|重复/i;
+// Counter rule: only show a sub-row counter when the step describes REPEATED ROWS,
+// never for stitch-level repetition within a single row.
+//
+// "repeat"/"重复" alone are intentionally excluded because they fire on stitch-level
+// phrases like "(k1, p1) repeat 12 times" / "重复12次".  Every genuine row-repetition
+// case already carries an explicit row count or range that is caught below:
+//   • English "rows X-Y"  →  \brows?\s+\d+[-–]\d+\b
+//   • Chinese "X-Y行"     →  \d+[-–]\d+\s*行
+//   • English "N rows"    →  \d+\s+rows?\b
+//   • Chinese "N行"       →  (?<!第)\d{2,}\s*行  (lookbehind skips row labels 第N行)
+const REPEAT_RE = /\brows?\s+\d+[-–]\d+\b|\d+[-–]\d+\s*行|(?<!第)\d{2,}\s*行|\d+\s+rows?\b/i;
 
 function isRepeatableStep(step: Step): boolean {
   return (!!step.count && step.count > 1) || REPEAT_RE.test(step.text);
@@ -929,21 +939,28 @@ function isRepeatableStep(step: Step): boolean {
 function parseMaxCount(step: Step): number | null {
   if (step.count && step.count > 1) return step.count;
   const t = step.text;
+
   // Chinese "X-Y行" range → Y - X + 1
+  // BUT if preceded by an approximation word (约/大约) return null → uncapped counter
   let m = t.match(/(\d+)[-–](\d+)\s*行/);
-  if (m) return parseInt(m[2], 10) - parseInt(m[1], 10) + 1;
+  if (m) {
+    const isApprox = /(?:约|大约|approximately|around|~)\s*\d+[-–]/.test(t);
+    return isApprox ? null : parseInt(m[2], 10) - parseInt(m[1], 10) + 1;
+  }
+
   // English "rows X-Y" range → Y - X + 1
   m = t.match(/\brows?\s+(\d+)[-–](\d+)\b/i);
   if (m) return parseInt(m[2], 10) - parseInt(m[1], 10) + 1;
-  // "N times" (English)
-  m = t.match(/\b(\d+)\s+times?\b/i);
-  if (m) return parseInt(m[1], 10);
+
   // "N rows" in English (e.g. "For the next 10 rows")
+  // Note: "N times" is intentionally removed — it refers to stitch-level repetition
   m = t.match(/\b(\d+)\s+rows?\b/i);
   if (m) return parseInt(m[1], 10);
-  // Chinese "N行" (e.g. "接下来的20行")
-  const allRowNums = [...t.matchAll(/(\d+)\s*行/g)];
+
+  // Chinese "N行" (e.g. "接下来的20行") — exclude row labels like "第N行"
+  const allRowNums = [...t.matchAll(/(?<!第)(\d+)\s*行/g)];
   if (allRowNums.length > 0) return parseInt(allRowNums[allRowNums.length - 1][1], 10);
+
   return null;
 }
 
