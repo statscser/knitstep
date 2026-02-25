@@ -339,6 +339,76 @@ export default function Home() {
     setSteps((prev) => prev.map((s) => s.id === id ? { ...s, text: newText } : s));
   }
 
+  function handlePrint() {
+    const dateStr = new Date().toLocaleDateString(
+      lang === "zh" ? "zh-CN" : "en-US",
+      { year: "numeric", month: "long", day: "numeric" }
+    );
+
+    function esc(s: string) {
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    const stepsHtml = steps.map((step) => {
+      if (step.isHeader) {
+        return `<div class="hdr">${esc(step.text)}</div>`;
+      }
+      return `<div class="step${step.checked ? " done" : ""}">
+        <span class="chk">${step.checked ? "✓" : "○"}</span>
+        <div>
+          <div class="txt">${esc(step.text)}</div>
+          ${step.original ? `<div class="orig">${esc(step.original)}</div>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KnitStep</title>
+<style>
+  @page { size: A4; margin: 20mm 15mm; }
+  body { font-family: system-ui, -apple-system, sans-serif; color: #111; max-width: 640px; margin: 0 auto; padding: 20px; }
+  h1 { text-align: center; font-size: 18pt; margin: 0 0 4pt; }
+  .sub { text-align: center; font-size: 9pt; color: #888; margin: 0 0 16pt; }
+  .hdr { background: #8faf96; color: #fff; font-weight: 700; border-radius: 6px; padding: 6px 12px; margin-bottom: 5px; font-size: 10pt; }
+  .step { display: flex; align-items: flex-start; gap: 10px; border: 1px solid #d1d5db; border-radius: 6px; padding: 7px 12px; margin-bottom: 5px; page-break-inside: avoid; }
+  .done { background: #f9fafb; border-color: #e5e7eb; }
+  .chk { flex-shrink: 0; font-size: 13px; margin-top: 3px; color: #555; }
+  .txt { font-size: 10.5pt; line-height: 1.45; }
+  .done .txt { color: #6b7280; text-decoration: line-through; }
+  .orig { font-size: 8pt; color: #9ca3af; margin-top: 2px; }
+  .footer { display: flex; justify-content: space-between; margin-top: 20pt; padding-top: 6pt; border-top: 1px solid #d1d5db; font-size: 8pt; color: #9ca3af; }
+</style>
+</head>
+<body>
+  <h1>KnitStep</h1>
+  <p class="sub">${esc(t.checklistTitle)}</p>
+  ${stepsHtml}
+  <div class="footer">
+    <span>${esc(t.printFooter)}</span>
+    <span>${esc(dateStr)}</span>
+  </div>
+  <script>window.addEventListener('load', function() { window.print(); });<\/script>
+</body>
+</html>`;
+
+    const win = window.open("", "_blank");
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+    } else {
+      // Fallback if popup blocked
+      window.print();
+    }
+  }
+
   const checkableSteps = steps.filter((s) => !s.isHeader);
   const doneCount      = checkableSteps.filter((s) => s.checked).length;
   const totalCount     = checkableSteps.length;
@@ -780,7 +850,7 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 {/* Print button */}
                 <button
-                  onClick={() => window.print()}
+                  onClick={handlePrint}
                   className="no-print flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full"
                   style={{
                     background: "var(--bg)",
