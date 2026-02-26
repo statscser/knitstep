@@ -524,6 +524,7 @@ export default function Home() {
                 <textarea
                   id="pattern-input"
                   rows={7}
+                  suppressHydrationWarning
                   className="w-full p-4 text-base resize-none focus:outline-none transition-all duration-200"
                   style={{
                     background:  "var(--bg)",
