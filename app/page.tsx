@@ -455,9 +455,9 @@ export default function Home() {
         initial={{ opacity: 0, y: -24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="print-header mb-8 relative w-full max-w-xl flex flex-col items-center gap-3 text-center"
+        className="print-header mb-8 relative w-full max-w-xl flex flex-col items-center gap-3 text-center px-16"
       >
-        <div className="no-print absolute left-4 top-1/2 -translate-y-1/2">
+        <div className="no-print absolute left-2 sm:left-6 top-0 hover:scale-105 transition-transform">
           <KnitLogo />
         </div>
         <div>
