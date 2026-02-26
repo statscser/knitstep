@@ -34,6 +34,7 @@ const dict = {
     errorKey:       "API Key 无效，请检查 .env.local 文件。",
     errorModel:     "模型暂不可用，请稍后重试。",
     errorUnknown:   "解析失败，请稍后重试。",
+    errorFileTooLarge: "文件过大（建议 7MB 以内），请压缩后再试。",
     compressing:    "正在压缩图片...",
     uploadTitle:    "拖拽图片或 PDF 到这里",
     uploadSub:      "KnitStep 帮你识别编织步骤",
@@ -64,6 +65,7 @@ const dict = {
     errorKey:       "Invalid API key. Please check your .env.local file.",
     errorModel:     "Model unavailable. Please try again later.",
     errorUnknown:   "Parsing failed. Please try again.",
+    errorFileTooLarge: "File too large (keep under 7 MB). Try compressing the PDF first.",
     compressing:    "Compressing image...",
     uploadTitle:    "Drag an image or PDF here",
     uploadSub:      "KnitStep will recognize your knitting steps",
@@ -237,6 +239,14 @@ export default function Home() {
   const t = dict[lang];
 
   async function handleFileUpload(file: File) {
+    // 7 MB raw → ~9.3 MB base64, safely under the 10 MB server-action body limit
+    const MAX_FILE_BYTES = 7 * 1024 * 1024;
+    if (file.size > MAX_FILE_BYTES) {
+      setErrorMsg(t.errorFileTooLarge);
+      return;
+    }
+    setErrorMsg(null);
+
     if (file.type.startsWith("image/")) {
       setIsCompressing(true);
       try {
@@ -292,8 +302,13 @@ export default function Home() {
       }));
       setSteps(parsed);
       setHasConverted(true);
-    } catch (err) {
-      // ... 保持原有的 error 处理不变
+    } catch (err: any) {
+      const msg = err?.message ?? "";
+      if      (msg === "QUOTA_EXCEEDED")    setErrorMsg(t.errorQuota);
+      else if (msg === "FILE_TOO_LARGE")    setErrorMsg(t.errorFileTooLarge);
+      else if (msg === "API_KEY_MISSING")   setErrorMsg(t.errorKey);
+      else if (msg === "MODEL_UNAVAILABLE") setErrorMsg(t.errorModel);
+      else                                  setErrorMsg(t.errorUnknown);
     } finally {
       setIsLoading(false);
     }
@@ -831,6 +846,22 @@ export default function Home() {
                         </AnimatePresence>
                       </motion.button>
                     </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* ── Error message (AI tab) ── */}
+                <AnimatePresence>
+                  {errorMsg && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3 text-center text-xs font-medium"
+                      style={{ color: "var(--morandi-blush)" }}
+                    >
+                      ⚠️ {errorMsg}
+                    </motion.p>
                   )}
                 </AnimatePresence>
               </motion.div>

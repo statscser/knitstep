@@ -67,8 +67,19 @@ export async function parsePatternAction(
     const jsonStart = raw.indexOf('{');
     const jsonEnd = raw.lastIndexOf('}');
     const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+
+    // Flatten before returning — Next.js Server Action serialization fails on
+    // deeply-nested objects (digest 942247392). Only pass primitive-only steps.
+    const steps: { text: string; original?: string }[] = (parsed.steps ?? []).map(
+      (s: any) => {
+        const step: { text: string; original?: string } = { text: String(s.text ?? '') };
+        if (s.original != null) step.original = String(s.original);
+        return step;
+      }
+    );
+
     inFlight = false;
-    return parsed;
+    return { steps };
 
   } catch (error: any) {
     // ── Full diagnostic dump ──────────────────────────────────────────────────
@@ -103,6 +114,18 @@ export async function parsePatternAction(
     console.error('retryCount   :', retryCount);
     console.error('isImage      :', !!imageBase64, '| mimeType:', imageMimeType ?? 'n/a');
     console.error('─────────────────────────────────────────────────────────');
+
+    // Detect file/payload too large (Gemini returns 400 for oversized inline data)
+    const isPayloadTooLarge =
+      httpStatus === 413 ||
+      msgLower.includes('payload size') ||
+      msgLower.includes('too large') ||
+      msgLower.includes('exceeds the limit') ||
+      msgLower.includes('request entity too large');
+    if (isPayloadTooLarge) {
+      inFlight = false;
+      throw new Error("FILE_TOO_LARGE");
+    }
 
     const is429 = httpStatus === 429 || errMessage.includes('429');
     if (is429 && !isDailyQuota && retryCount < 3) {
