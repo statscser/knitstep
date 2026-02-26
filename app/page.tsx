@@ -432,9 +432,11 @@ export default function Home() {
         initial={{ opacity: 0, y: -24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="print-header mb-8 flex flex-col items-center gap-3 text-center"
+        className="print-header mb-8 relative w-full max-w-xl flex flex-col items-center gap-3 text-center"
       >
-        <span className="no-print"><KnitLogo /></span>
+        <div className="no-print absolute left-4 top-1/2 -translate-y-1/2">
+          <KnitLogo />
+        </div>
         <div>
           <h1 className="text-3xl font-bold leading-tight flex items-center justify-center gap-2">
             <span style={{
