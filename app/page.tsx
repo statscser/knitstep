@@ -857,65 +857,87 @@ export default function Home() {
             className="print-results-card w-full max-w-xl p-8"
             style={{ ...CARD_STYLE, borderRadius: RADIUS }}
           >
-            <div className="flex items-center justify-between mb-5">
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={lang + "-title"}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className="print-section-title text-sm font-semibold uppercase tracking-widest"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {t.checklistTitle}
-                </motion.span>
-              </AnimatePresence>
+            {/* ── Header: title row + progress bar, flex-col on mobile ── */}
+            <div className="mb-5 flex flex-col gap-3">
 
-              <div className="flex items-center gap-2">
-                {/* Reset button */}
-                <button
-                  onClick={handleReset}
-                  className="no-print flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full"
-                  style={{
-                    background: "var(--bg)",
-                    color:      "var(--morandi-stone)",
-                    border:     "1px solid var(--border)",
-                    cursor:     "pointer",
-                  }}
-                >
-                  <RotateCcw size={13} strokeWidth={2} />
-                  {t.resetBtn}
-                </button>
+              {/* Title + button group — always a single horizontal row */}
+              <div className="flex items-center justify-between">
+                <AnimatePresence mode="wait">
+                  <motion.span
+                    key={lang + "-title"}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="print-section-title text-sm font-semibold uppercase tracking-widest"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {t.checklistTitle}
+                  </motion.span>
+                </AnimatePresence>
 
-                {/* Print button */}
-                <button
-                  onClick={handlePrint}
-                  className="no-print flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full"
-                  style={{
-                    background: "var(--bg)",
-                    color:      "var(--text-muted)",
-                    border:     "1px solid var(--border)",
-                    cursor:     "pointer",
-                  }}
-                >
-                  <Printer size={13} strokeWidth={2} />
-                  {t.printBtn}
-                </button>
+                {/* Button group + count badge (whole group hidden in print) */}
+                <div className="no-print flex items-center gap-2">
+                  {/* Reset — icon always, label hidden on xs */}
+                  <button
+                    onClick={handleReset}
+                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
+                    style={{
+                      background: "var(--bg)",
+                      color:      "var(--morandi-stone)",
+                      border:     "1px solid var(--border)",
+                      cursor:     "pointer",
+                    }}
+                  >
+                    <RotateCcw size={13} strokeWidth={2} />
+                    <span className="hidden sm:inline">{t.resetBtn}</span>
+                  </button>
 
-                {totalCount > 0 && (
-                  <span
-                    className="print-count-badge text-sm font-medium px-3 py-1 rounded-full"
+                  {/* Print — icon always, label hidden on xs */}
+                  <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
                     style={{
                       background: "var(--bg)",
                       color:      "var(--text-muted)",
                       border:     "1px solid var(--border)",
+                      cursor:     "pointer",
                     }}
                   >
-                    {doneCount} / {totalCount}
-                  </span>
-                )}
+                    <Printer size={13} strokeWidth={2} />
+                    <span className="hidden sm:inline">{t.printBtn}</span>
+                  </button>
+
+                  {totalCount > 0 && (
+                    <span
+                      className="print-count-badge text-sm font-medium px-3 py-1 rounded-full"
+                      style={{
+                        background: "var(--bg)",
+                        color:      "var(--text-muted)",
+                        border:     "1px solid var(--border)",
+                      }}
+                    >
+                      {doneCount} / {totalCount}
+                    </span>
+                  )}
+                </div>
               </div>
+
+              {/* Progress bar — full-width on all screens */}
+              {totalCount > 0 && (
+                <div
+                  className="no-print w-full h-2 rounded-full overflow-hidden"
+                  style={{ background: "var(--border)" }}
+                >
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ background: "var(--morandi-green)" }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.round((doneCount / totalCount) * 100)}%` }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                  />
+                </div>
+              )}
             </div>
 
             {totalCount === 0 ? (
@@ -936,19 +958,6 @@ export default function Home() {
               </AnimatePresence>
             ) : (
               <>
-                <div
-                  className="no-print w-full h-2 rounded-full mb-6 overflow-hidden"
-                  style={{ background: "var(--border)" }}
-                >
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ background: "var(--morandi-green)" }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.round((doneCount / totalCount) * 100)}%` }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                  />
-                </div>
-
                 {/* ── Edit tip ── */}
                 <AnimatePresence>
                   {tipVisible && (
