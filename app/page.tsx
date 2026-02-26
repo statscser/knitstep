@@ -390,12 +390,11 @@ export default function Home() {
 </style>
 </head>
 <body>
-  <h1>KnitStep</h1>
+  <h1>KnitStep · 织步</h1>
   <p class="sub">${esc(t.checklistTitle)}</p>
   ${stepsHtml}
   <div class="footer">
     <span>${esc(t.printFooter)}</span>
-    <span>${esc(dateStr)}</span>
   </div>
   <script>window.addEventListener('load', function() { window.print(); });<\/script>
 </body>
@@ -991,11 +990,6 @@ export default function Home() {
                 {/* ── Print-only footer ── */}
                 <div className="print-footer">
                   <span>{t.printFooter}</span>
-                  <span suppressHydrationWarning>
-                    {mounted ? new Date().toLocaleDateString(
-                      lang === "zh" ? "zh-CN" : "en-US",
-                      { year: "numeric", month: "long", day: "numeric" }
-                    ) : ""}</span>
                 </div>
               </>
             )}
