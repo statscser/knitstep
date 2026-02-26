@@ -431,7 +431,7 @@ export default function Home() {
       style={{ background: "var(--bg)", fontFamily: "var(--font-body)" }}
     >
       {/* ── Language toggle — fixed top-right ── */}
-      <div className="no-print fixed top-5 right-5 z-50">
+      <div className="no-print absolute top-5 right-5 z-10">
         <LangToggle lang={lang} onToggle={toggleLang} />
       </div>
 
