@@ -175,6 +175,7 @@ export default function Home() {
   } | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [tipVisible, setTipVisible]       = useState(true);
+  const [mounted, setMounted]             = useState(false);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -207,6 +208,7 @@ export default function Home() {
     if (localStorage.getItem("knitstep-tip-dismissed") === "1") setTipVisible(false);
 
     hydrated.current = true;
+    setMounted(true);
   }, []);
 
   // ── Persistence — save whenever relevant state changes ──
@@ -974,12 +976,11 @@ export default function Home() {
                 {/* ── Print-only footer ── */}
                 <div className="print-footer">
                   <span>{t.printFooter}</span>
-                  <span>
-                    {new Date().toLocaleDateString(
+                  <span suppressHydrationWarning>
+                    {mounted ? new Date().toLocaleDateString(
                       lang === "zh" ? "zh-CN" : "en-US",
                       { year: "numeric", month: "long", day: "numeric" }
-                    )}
-                  </span>
+                    ) : ""}</span>
                 </div>
               </>
             )}
