@@ -448,8 +448,8 @@ export default function Home() {
             </span>
             <span aria-hidden="true" style={{ color: "var(--morandi-green)", fontWeight: 700, fontSize: "0.6em", lineHeight: 1 }}>●</span>
             <span style={{
-              fontFamily: '"PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif',
-              fontWeight: 600,
+              fontFamily: 'var(--font-zcool), "PingFang SC", sans-serif',
+              fontWeight: 700,
               letterSpacing: "0.1em",
               color: "var(--morandi-green)",
             }}>
