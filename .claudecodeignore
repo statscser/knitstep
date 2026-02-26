@@ -1,0 +1,74 @@
+# ==========================================
+# Claude Code 忽略文件模板 (Standard Template)
+# ==========================================
+
+# --- 依赖项 (Dependencies) ---
+node_modules/
+bower_components/
+vendor/
+packages/*/node_modules/
+.pnp*
+.yarn/
+
+# --- 编译产物与缓存 (Build Outputs & Cache) ---
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+*.pyc
+__pycache__/
+target/
+bin/
+obj/
+
+# --- 环境变量与密钥 (Secrets & Env - 强烈建议忽略以保护隐私) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.secrets/
+
+# --- 版本控制 (Version Control) ---
+.git/
+.svn/
+.hg/
+.gitignore
+
+# --- IDE 与编辑器配置 (Editor Configs) ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- 测试与覆盖率 (Tests & Coverage) ---
+coverage/
+.nyc_output/
+*.lcov
+htmlcov/
+
+# --- 文档与大型媒体文件 (Docs & Large Assets) ---
+# 如果不需要 Claude 修改文档或图片，请保持忽略
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.svg
+*.mp4
+*.zip
+*.tar.gz
+docs/_build/
+
+# --- 日志文件 (Logs) ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Claude Code 自身的元数据 ---
+.claudecode/
