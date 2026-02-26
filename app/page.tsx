@@ -436,11 +436,23 @@ export default function Home() {
       >
         <span className="no-print"><KnitLogo /></span>
         <div>
-          <h1
-            className="text-3xl font-bold tracking-wide leading-tight"
-            style={{ color: "var(--text-main)" }}
-          >
-            KnitStep
+          <h1 className="text-3xl font-bold leading-tight flex items-center justify-center gap-2">
+            <span style={{
+              fontFamily: "var(--font-quicksand), 'Nunito', sans-serif",
+              color: "var(--morandi-green)",
+              letterSpacing: "0.04em",
+            }}>
+              KnitStep
+            </span>
+            <span aria-hidden="true" style={{ color: "var(--morandi-green)", fontWeight: 700, fontSize: "0.6em", lineHeight: 1 }}>●</span>
+            <span style={{
+              fontFamily: '"PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif',
+              fontWeight: 600,
+              letterSpacing: "0.1em",
+              color: "var(--morandi-green)",
+            }}>
+              织步
+            </span>
           </h1>
           <AnimatePresence mode="wait">
             <motion.p
