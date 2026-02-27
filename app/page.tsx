@@ -329,7 +329,9 @@ export default function Home() {
     setErrorMsg(null);
     
     // ⚠️ 关键修复：在开始转换前，彻底清空旧的步骤和状态
-    setSteps([]); 
+    // 先清除 currentProjectId，防止 sync effect 把旧项目覆盖为空步骤
+    setCurrentProjectId(null);
+    setSteps([]);
     setHasConverted(false);
 
     try {
@@ -385,6 +387,7 @@ export default function Home() {
   // 清除功能：重置所有状态并清空缓存
   function handleClear() {
     if (confirm(lang === "zh" ? "确定要清除所有进度并重新开始吗？" : "Clear all progress and restart?")) {
+      setCurrentProjectId(null);
       setSteps([]);
       setHasConverted(false);
       setInputText(dict[lang].sampleText);
@@ -573,35 +576,8 @@ export default function Home() {
       className="print-container relative min-h-screen flex flex-col items-center py-16 px-4"
       style={{ background: "var(--bg)", fontFamily: "var(--font-body)" }}
     >
-      {/* ── Language toggle + My Projects — fixed top-right ── */}
-      <div className="no-print absolute top-5 right-5 z-10 flex items-center gap-2">
-        <motion.button
-          onClick={() => setShowProjectsModal(true)}
-          whileHover={{ scale: 1.06 }}
-          whileTap={{ scale: 0.94 }}
-          transition={{ type: "spring", stiffness: 400, damping: 20 }}
-          className="print:hidden flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
-          style={{
-            background:   "var(--bg-card)",
-            borderRadius: "999px",
-            border:       "1.5px solid var(--border)",
-            boxShadow:    "0 2px 12px -4px rgba(0,0,0,0.1)",
-            cursor:       "pointer",
-            color:        "var(--text-muted)",
-          }}
-          aria-label="My Projects"
-        >
-          <Folder size={14} strokeWidth={2} style={{ color: "var(--morandi-green)" }} />
-          <span className="hidden sm:inline">{t.myProjects}</span>
-          {projects.length > 0 && (
-            <span
-              className="flex items-center justify-center text-xs font-bold w-4 h-4 rounded-full"
-              style={{ background: "var(--morandi-pink)", color: "#fff", fontSize: "10px" }}
-            >
-              {projects.length}
-            </span>
-          )}
-        </motion.button>
+      {/* ── Language toggle — fixed top-right ── */}
+      <div className="no-print absolute top-5 right-5 z-10">
         <LangToggle lang={lang} onToggle={toggleLang} />
       </div>
 
@@ -615,6 +591,44 @@ export default function Home() {
         <div className="no-print absolute left-2 sm:left-6 top-0 hover:scale-105 transition-transform">
           <KnitLogo />
         </div>
+
+        {/* My Projects — symmetric with logo, right side */}
+        <motion.button
+          onClick={() => setShowProjectsModal(true)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 400, damping: 20 }}
+          className="no-print absolute right-2 sm:right-6 top-0 flex-shrink-0"
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
+          aria-label={t.myProjects}
+        >
+          <div style={{
+            width: 56, height: 56, position: "relative",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: "3px",
+          }}>
+            <Folder size={26} strokeWidth={1.3} style={{ color: "var(--morandi-green)" }} />
+            <span style={{
+              fontSize: "9px", fontWeight: 700,
+              color: "var(--morandi-green)", letterSpacing: "0.04em",
+              lineHeight: 1,
+            }}>
+              {lang === "zh" ? "项目库" : "Projects"}
+            </span>
+            {projects.length > 0 && (
+              <span style={{
+                position: "absolute", top: 6, right: 6,
+                background: "var(--morandi-pink)", color: "#fff",
+                borderRadius: "999px", fontSize: "9px", fontWeight: 700,
+                minWidth: "14px", height: "14px", padding: "0 3px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                lineHeight: 1,
+              }}>
+                {projects.length}
+              </span>
+            )}
+          </div>
+        </motion.button>
         <div>
           <h1 className="text-3xl font-bold leading-tight flex items-center justify-center gap-2">
             <span style={{
@@ -1079,21 +1093,6 @@ export default function Home() {
                     <span className="hidden sm:inline">{t.saveToLibrary}</span>
                   </button>
 
-                  {/* Reset — icon always, label hidden on xs */}
-                  <button
-                    onClick={handleReset}
-                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
-                    style={{
-                      background: "var(--bg)",
-                      color:      "var(--morandi-stone)",
-                      border:     "1px solid var(--border)",
-                      cursor:     "pointer",
-                    }}
-                  >
-                    <RotateCcw size={13} strokeWidth={2} />
-                    <span className="hidden sm:inline">{t.resetBtn}</span>
-                  </button>
-
                   {/* Print — icon always, label hidden on xs */}
                   <button
                     onClick={handlePrint}
@@ -1107,6 +1106,21 @@ export default function Home() {
                   >
                     <Printer size={13} strokeWidth={2} />
                     <span className="hidden sm:inline">{t.printBtn}</span>
+                  </button>
+
+                  {/* Reset — icon always, label hidden on xs (next to count badge) */}
+                  <button
+                    onClick={handleReset}
+                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
+                    style={{
+                      background: "var(--bg)",
+                      color:      "var(--morandi-stone)",
+                      border:     "1px solid var(--border)",
+                      cursor:     "pointer",
+                    }}
+                  >
+                    <RotateCcw size={13} strokeWidth={2} />
+                    <span className="hidden sm:inline">{t.resetBtn}</span>
                   </button>
 
                   {totalCount > 0 && (
