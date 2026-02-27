@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder } from "lucide-react";
 import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -17,6 +17,14 @@ interface Step {
   isHeader?: boolean;
   count?: number;
   subCount?: number;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  steps: Step[];
+  rowCount: number;
+  lastUpdated: number;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────
@@ -52,6 +60,11 @@ const dict = {
     resetBtn:       "重置进度",
     resetConfirm:   "确定要清除所有进度吗？",
     sampleText:     "用 4mm 的针起 40 针。第 1-8 行织双罗纹（K2, P2）。接下来的 20 行，单数行织全下针，双数行织全上针。",
+    myProjects:     "我的项目库",
+    saveToLibrary:  "存入项目库",
+    noProjects:     "暂无保存的项目",
+    projectNamePrompt: "请为项目命名:",
+    deleteConfirm:  "确定要删除这个项目吗？",
   },
   en: {
     subtitle:       "Turn your knitting patterns into a checklist",
@@ -83,6 +96,11 @@ const dict = {
     resetBtn:       "Reset Progress",
     resetConfirm:   "Reset all progress?",
     sampleText:     "R1: knit all. R2: purl all. Repeat R1-R2 for 10 rows.",
+    myProjects:     "My Projects",
+    saveToLibrary:  "Save",
+    noProjects:     "No projects saved yet",
+    projectNamePrompt: "Name this project:",
+    deleteConfirm:  "Delete this project?",
   },
 } as const;
 
@@ -182,6 +200,9 @@ export default function Home() {
   const [isCompressing, setIsCompressing] = useState(false);
   const [tipVisible, setTipVisible]       = useState(true);
   const [mounted, setMounted]             = useState(false);
+  const [projects, setProjects]                     = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
+  const [showProjectsModal, setShowProjectsModal]   = useState(false);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -213,6 +234,14 @@ export default function Home() {
 
     if (localStorage.getItem("knitstep-tip-dismissed") === "1") setTipVisible(false);
 
+    const savedProjects = localStorage.getItem("knitstep-projects");
+    if (savedProjects) {
+      try {
+        const parsed = JSON.parse(savedProjects);
+        if (Array.isArray(parsed)) setProjects(parsed);
+      } catch { /* ignore corrupt data */ }
+    }
+
     hydrated.current = true;
     setMounted(true);
   }, []);
@@ -226,6 +255,22 @@ export default function Home() {
       JSON.stringify({ inputText, steps, hasConverted })
     );
   }, [inputText, steps, hasConverted]);
+
+  // ── Project sync — update active project whenever steps change ──
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (!currentProjectId) return;
+    setProjects((prev) => {
+      const updated = prev.map((p) =>
+        p.id === currentProjectId
+          ? { ...p, steps, rowCount: steps.filter((s) => !s.isHeader).length, lastUpdated: Date.now() }
+          : p
+      );
+      localStorage.setItem("knitstep-projects", JSON.stringify(updated));
+      return updated;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps, currentProjectId]);
 
   function toggleLang() {
     const next: Lang = lang === "zh" ? "en" : "zh";
@@ -302,6 +347,29 @@ export default function Home() {
       }));
       setSteps(parsed);
       setHasConverted(true);
+
+      // Auto-save as a new project (only when there are actual steps)
+      if (parsed.filter((s) => !s.isHeader).length > 0) {
+        const now = Date.now();
+        const d   = new Date(now);
+        const projectName =
+          lang === "zh"
+            ? `${d.getMonth() + 1}月${d.getDate()}日 项目`
+            : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Project`;
+        const newProject: Project = {
+          id:          now.toString(),
+          name:        projectName,
+          steps:       parsed,
+          rowCount:    parsed.filter((s) => !s.isHeader).length,
+          lastUpdated: now,
+        };
+        setProjects((prev) => {
+          const updated = [newProject, ...prev];
+          localStorage.setItem("knitstep-projects", JSON.stringify(updated));
+          return updated;
+        });
+        setCurrentProjectId(now.toString());
+      }
     } catch (err: any) {
       const msg = err?.message ?? "";
       if      (msg === "QUOTA_EXCEEDED")    setErrorMsg(t.errorQuota);
@@ -363,6 +431,66 @@ export default function Home() {
   function handleReset() {
     if (!confirm(t.resetConfirm)) return;
     setSteps((prev) => prev.map((s) => ({ ...s, checked: false, subCount: 0 })));
+  }
+
+  function handleSaveToLibrary() {
+    const d = new Date();
+    const defaultName =
+      lang === "zh"
+        ? `${d.getMonth() + 1}月${d.getDate()}日 项目`
+        : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Project`;
+    const currentName = currentProjectId
+      ? (projects.find((p) => p.id === currentProjectId)?.name ?? defaultName)
+      : defaultName;
+    const input = window.prompt(t.projectNamePrompt, currentName);
+    if (input === null) return; // cancelled
+    const finalName = input.trim() || defaultName;
+    const now = Date.now();
+
+    if (currentProjectId) {
+      setProjects((prev) => {
+        const updated = prev.map((p) =>
+          p.id === currentProjectId
+            ? { ...p, name: finalName, steps, rowCount: steps.filter((s) => !s.isHeader).length, lastUpdated: now }
+            : p
+        );
+        localStorage.setItem("knitstep-projects", JSON.stringify(updated));
+        return updated;
+      });
+    } else {
+      const newProject: Project = {
+        id:          now.toString(),
+        name:        finalName,
+        steps,
+        rowCount:    steps.filter((s) => !s.isHeader).length,
+        lastUpdated: now,
+      };
+      setProjects((prev) => {
+        const updated = [newProject, ...prev];
+        localStorage.setItem("knitstep-projects", JSON.stringify(updated));
+        return updated;
+      });
+      setCurrentProjectId(now.toString());
+    }
+  }
+
+  function handleLoadProject(id: string) {
+    const project = projects.find((p) => p.id === id);
+    if (!project) return;
+    setSteps(project.steps);
+    setHasConverted(true);
+    setCurrentProjectId(id);
+    setShowProjectsModal(false);
+  }
+
+  function handleDeleteProject(id: string) {
+    if (!confirm(t.deleteConfirm)) return;
+    setProjects((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      localStorage.setItem("knitstep-projects", JSON.stringify(updated));
+      return updated;
+    });
+    if (currentProjectId === id) setCurrentProjectId(null);
   }
 
   function handlePrint() {
@@ -445,8 +573,35 @@ export default function Home() {
       className="print-container relative min-h-screen flex flex-col items-center py-16 px-4"
       style={{ background: "var(--bg)", fontFamily: "var(--font-body)" }}
     >
-      {/* ── Language toggle — fixed top-right ── */}
-      <div className="no-print absolute top-5 right-5 z-10">
+      {/* ── Language toggle + My Projects — fixed top-right ── */}
+      <div className="no-print absolute top-5 right-5 z-10 flex items-center gap-2">
+        <motion.button
+          onClick={() => setShowProjectsModal(true)}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.94 }}
+          transition={{ type: "spring", stiffness: 400, damping: 20 }}
+          className="print:hidden flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
+          style={{
+            background:   "var(--bg-card)",
+            borderRadius: "999px",
+            border:       "1.5px solid var(--border)",
+            boxShadow:    "0 2px 12px -4px rgba(0,0,0,0.1)",
+            cursor:       "pointer",
+            color:        "var(--text-muted)",
+          }}
+          aria-label="My Projects"
+        >
+          <Folder size={14} strokeWidth={2} style={{ color: "var(--morandi-green)" }} />
+          <span className="hidden sm:inline">{t.myProjects}</span>
+          {projects.length > 0 && (
+            <span
+              className="flex items-center justify-center text-xs font-bold w-4 h-4 rounded-full"
+              style={{ background: "var(--morandi-pink)", color: "#fff", fontSize: "10px" }}
+            >
+              {projects.length}
+            </span>
+          )}
+        </motion.button>
         <LangToggle lang={lang} onToggle={toggleLang} />
       </div>
 
@@ -909,6 +1064,21 @@ export default function Home() {
 
                 {/* Button group + count badge (whole group hidden in print) */}
                 <div className="no-print flex items-center gap-2">
+                  {/* Save to Library — icon always, label hidden on xs */}
+                  <button
+                    onClick={handleSaveToLibrary}
+                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
+                    style={{
+                      background: "var(--bg)",
+                      color:      "var(--morandi-green)",
+                      border:     "1px solid var(--border)",
+                      cursor:     "pointer",
+                    }}
+                  >
+                    <Folder size={13} strokeWidth={2} />
+                    <span className="hidden sm:inline">{t.saveToLibrary}</span>
+                  </button>
+
                   {/* Reset — icon always, label hidden on xs */}
                   <button
                     onClick={handleReset}
@@ -1058,6 +1228,20 @@ export default function Home() {
               </>
             )}
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Projects Modal ── */}
+      <AnimatePresence>
+        {showProjectsModal && (
+          <ProjectsModal
+            projects={projects}
+            lang={lang}
+            currentProjectId={currentProjectId}
+            onClose={() => setShowProjectsModal(false)}
+            onLoad={handleLoadProject}
+            onDelete={handleDeleteProject}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -1412,6 +1596,140 @@ function StepItem({
         )}
       </div>
     </motion.li>
+  );
+}
+
+// ─── ProjectsModal ────────────────────────────────────────────────────────────
+
+function ProjectsModal({
+  projects,
+  lang,
+  currentProjectId,
+  onClose,
+  onLoad,
+  onDelete,
+}: {
+  projects: Project[];
+  lang: Lang;
+  currentProjectId: string | null;
+  onClose: () => void;
+  onLoad: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const t = dict[lang];
+  return (
+    <motion.div
+      key="projects-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.32)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.94, y: 20 }}
+        transition={{ type: "spring", stiffness: 360, damping: 28 }}
+        className="w-full max-w-sm flex flex-col gap-4"
+        style={{
+          background:   "var(--bg-card)",
+          border:       "1.5px solid var(--border)",
+          boxShadow:    "0 20px 60px -15px rgba(0,0,0,0.25)",
+          borderRadius: "2rem",
+          padding:      "1.5rem",
+          maxHeight:    "75vh",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-base font-bold" style={{ color: "var(--text-main)" }}>
+            <Folder size={16} strokeWidth={2} style={{ color: "var(--morandi-green)", flexShrink: 0 }} />
+            {t.myProjects}
+          </h2>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", lineHeight: 0, padding: "2px" }}
+            aria-label="Close"
+          >
+            <X size={18} strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Project list */}
+        <div className="flex flex-col gap-2 overflow-y-auto" style={{ flex: 1 }}>
+          {projects.length === 0 ? (
+            <p
+              className="text-center text-sm py-10"
+              style={{ color: "var(--text-muted)" }}
+            >
+              🧶 {t.noProjects}
+            </p>
+          ) : (
+            projects.map((project) => {
+              const isActive   = project.id === currentProjectId;
+              const checkable  = project.steps.filter((s) => !s.isHeader);
+              const done       = checkable.filter((s) => s.checked).length;
+              const total      = checkable.length;
+              const date       = new Date(project.lastUpdated).toLocaleDateString(
+                lang === "zh" ? "zh-CN" : "en-US",
+                { month: "short", day: "numeric" }
+              );
+              return (
+                <div
+                  key={project.id}
+                  className="flex items-center gap-2 px-4 py-3 rounded-2xl"
+                  style={{
+                    background: isActive ? "var(--morandi-stone)" : "var(--bg)",
+                    border:     `1.5px solid ${isActive ? "var(--morandi-pink)" : "var(--border)"}`,
+                    transition: "border-color 0.2s",
+                  }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text-main)" }}>
+                      {project.name}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {date} · {done}/{total}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onLoad(project.id)}
+                    className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full"
+                    style={{
+                      background: isActive ? "var(--morandi-pink)" : "var(--morandi-green)",
+                      color:      "#fff",
+                      border:     "none",
+                      cursor:     "pointer",
+                    }}
+                  >
+                    {isActive
+                      ? (lang === "zh" ? "当前" : "Active")
+                      : (lang === "zh" ? "加载" : "Load")}
+                  </button>
+                  <button
+                    onClick={() => onDelete(project.id)}
+                    className="shrink-0 flex items-center justify-center w-7 h-7 rounded-full"
+                    style={{
+                      background: "transparent",
+                      color:      "var(--text-muted)",
+                      border:     "1px solid var(--border)",
+                      cursor:     "pointer",
+                    }}
+                    aria-label="Delete project"
+                  >
+                    <X size={12} strokeWidth={2.5} />
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
