@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus } from "lucide-react";
 import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -65,6 +65,8 @@ const dict = {
     noProjects:     "暂无保存的项目",
     projectNamePrompt: "请为项目命名:",
     deleteConfirm:  "确定要删除这个项目吗？",
+    editMode:       "编辑",
+    editModeDone:   "完成",
   },
   en: {
     subtitle:       "Turn your knitting patterns into a checklist",
@@ -101,6 +103,8 @@ const dict = {
     noProjects:     "No projects saved yet",
     projectNamePrompt: "Name this project:",
     deleteConfirm:  "Delete this project?",
+    editMode:       "Edit",
+    editModeDone:   "Done",
   },
 } as const;
 
@@ -203,6 +207,7 @@ export default function Home() {
   const [projects, setProjects]                     = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
+  const [isEditMode, setIsEditMode]                 = useState(false);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -234,12 +239,23 @@ export default function Home() {
 
     if (localStorage.getItem("knitstep-tip-dismissed") === "1") setTipVisible(false);
 
+    let restoredProjects: Project[] = [];
     const savedProjects = localStorage.getItem("knitstep-projects");
     if (savedProjects) {
       try {
         const parsed = JSON.parse(savedProjects);
-        if (Array.isArray(parsed)) setProjects(parsed);
+        if (Array.isArray(parsed)) {
+          restoredProjects = parsed;
+          setProjects(parsed);
+        }
       } catch { /* ignore corrupt data */ }
+    }
+
+    // Restore the active project so the sync effect keeps saving without requiring
+    // the user to re-open the project library after a page refresh.
+    const savedProjectId = localStorage.getItem("knitstep-current-project");
+    if (savedProjectId && restoredProjects.some((p) => p.id === savedProjectId)) {
+      setCurrentProjectId(savedProjectId);
     }
 
     hydrated.current = true;
@@ -255,6 +271,16 @@ export default function Home() {
       JSON.stringify({ inputText, steps, hasConverted })
     );
   }, [inputText, steps, hasConverted]);
+
+  // ── Persist active project ID so the sync effect survives page refreshes ──
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (currentProjectId) {
+      localStorage.setItem("knitstep-current-project", currentProjectId);
+    } else {
+      localStorage.removeItem("knitstep-current-project");
+    }
+  }, [currentProjectId]);
 
   // ── Project sync — update active project whenever steps change ──
   useEffect(() => {
@@ -330,6 +356,7 @@ export default function Home() {
     
     // ⚠️ 关键修复：在开始转换前，彻底清空旧的步骤和状态
     // 先清除 currentProjectId，防止 sync effect 把旧项目覆盖为空步骤
+    setIsEditMode(false);
     setCurrentProjectId(null);
     setSteps([]);
     setHasConverted(false);
@@ -387,6 +414,7 @@ export default function Home() {
   // 清除功能：重置所有状态并清空缓存
   function handleClear() {
     if (confirm(lang === "zh" ? "确定要清除所有进度并重新开始吗？" : "Clear all progress and restart?")) {
+      setIsEditMode(false);
       setCurrentProjectId(null);
       setSteps([]);
       setHasConverted(false);
@@ -434,6 +462,19 @@ export default function Home() {
   function handleReset() {
     if (!confirm(t.resetConfirm)) return;
     setSteps((prev) => prev.map((s) => ({ ...s, checked: false, subCount: 0 })));
+  }
+
+  function addStep(insertAt: number) {
+    setSteps((prev) => {
+      const newStep: Step = { id: Date.now(), text: lang === "zh" ? "新步骤" : "New step", checked: false };
+      const next = [...prev];
+      next.splice(insertAt, 0, newStep);
+      return next;
+    });
+  }
+
+  function deleteStep(id: number) {
+    setSteps((prev) => prev.filter((s) => s.id !== id));
   }
 
   function handleSaveToLibrary() {
@@ -1108,6 +1149,25 @@ export default function Home() {
                     <span className="hidden sm:inline">{t.printBtn}</span>
                   </button>
 
+                  {/* Edit / Done — toggle edit mode */}
+                  <button
+                    onClick={() => setIsEditMode((v) => !v)}
+                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
+                    style={{
+                      background: isEditMode ? "var(--bg-card)" : "var(--bg)",
+                      color:      isEditMode ? "var(--morandi-pink)" : "var(--text-muted)",
+                      border:     isEditMode ? "1px solid var(--morandi-pink)" : "1px solid var(--border)",
+                      cursor:     "pointer",
+                    }}
+                  >
+                    {isEditMode
+                      ? <Check size={13} strokeWidth={2.5} />
+                      : <Edit3 size={13} strokeWidth={2} />}
+                    <span className="hidden sm:inline">
+                      {isEditMode ? t.editModeDone : t.editMode}
+                    </span>
+                  </button>
+
                   {/* Reset — icon always, label hidden on xs (next to count badge) */}
                   <button
                     onClick={handleReset}
@@ -1198,16 +1258,28 @@ export default function Home() {
                 </AnimatePresence>
 
                 <ul className="flex flex-col gap-2">
-                  {steps.map((step, i) => (
+                  <AnimatePresence>
+                    {isEditMode && (
+                      <StepInsertDividerLi key="ins-before-0" onAdd={() => addStep(0)} />
+                    )}
+                  </AnimatePresence>
+                  {steps.flatMap((step, i) => [
                     <StepItem
                       key={step.id}
                       step={step}
                       index={i}
+                      isEditMode={isEditMode}
                       onToggle={() => toggleStep(step.id)}
                       onSubCountChange={(delta) => updateSubCount(step.id, delta)}
                       onTextEdit={(text) => handleTextEdit(step.id, text)}
-                    />
-                  ))}
+                      onDelete={() => deleteStep(step.id)}
+                    />,
+                    <AnimatePresence key={`ap-ins-${step.id}`}>
+                      {isEditMode && (
+                        <StepInsertDividerLi key={`ins-after-${step.id}`} onAdd={() => addStep(i + 1)} />
+                      )}
+                    </AnimatePresence>,
+                  ])}
                 </ul>
 
                 <AnimatePresence>
@@ -1383,12 +1455,16 @@ function StepItem({
   onToggle,
   onSubCountChange,
   onTextEdit,
+  isEditMode = false,
+  onDelete,
 }: {
   step: Step;
   index: number;
   onToggle: () => void;
   onSubCountChange: (delta: number) => void;
   onTextEdit: (newText: string) => void;
+  isEditMode?: boolean;
+  onDelete?: () => void;
 }) {
   const [editing, setEditing]   = useState(false);
   const [editText, setEditText] = useState(step.text);
@@ -1433,9 +1509,32 @@ function StepItem({
         }}
       >
         <span className="text-lg">🧶</span>
-        <span className="text-sm font-bold leading-snug" style={{ color: "#fff" }}>
+        <span className="flex-1 text-sm font-bold leading-snug" style={{ color: "#fff" }}>
           {step.text}
         </span>
+        <AnimatePresence>
+          {isEditMode && (
+            <motion.button
+              key="hdr-delete-btn"
+              initial={{ opacity: 0, scale: 0.7 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.7 }}
+              transition={{ duration: 0.15 }}
+              onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="no-print shrink-0 flex items-center justify-center w-7 h-7 rounded-full"
+              style={{
+                background: "rgba(255,255,255,0.18)",
+                border:     "1px solid rgba(255,255,255,0.45)",
+                color:      "#fff",
+                cursor:     "pointer",
+              }}
+              aria-label="Delete step"
+            >
+              <Trash2 size={13} strokeWidth={2} />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </motion.li>
     );
   }
@@ -1448,10 +1547,10 @@ function StepItem({
         opacity: { duration: 0.25, delay: index * 0.06 },
         x: { type: "spring", stiffness: 340, damping: 26, delay: index * 0.06 },
       }}
-      whileHover={editing ? undefined : { y: -1 }}
-      whileTap={editing ? undefined : { scale: 0.985 }}
-      onClick={editing ? undefined : onToggle}
-      className="print-step flex items-start gap-3 px-5 py-4 cursor-pointer select-none"
+      whileHover={(editing || isEditMode) ? undefined : { y: -1 }}
+      whileTap={(editing || isEditMode) ? undefined : { scale: 0.985 }}
+      onClick={(editing || isEditMode) ? undefined : onToggle}
+      className={`print-step flex items-start gap-3 px-5 py-4 select-none ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
       data-checked={step.checked}
       style={{
         background:   editing
@@ -1609,6 +1708,62 @@ function StepItem({
           </div>
         )}
       </div>
+
+      {/* Delete button — visible only in edit mode */}
+      <AnimatePresence>
+        {isEditMode && (
+          <motion.button
+            key="delete-btn"
+            initial={{ opacity: 0, scale: 0.7 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.7 }}
+            transition={{ duration: 0.15 }}
+            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="no-print shrink-0 self-center flex items-center justify-center w-7 h-7 rounded-full"
+            style={{
+              background: "transparent",
+              border:     "1px solid var(--morandi-blush)",
+              color:      "var(--morandi-blush)",
+              cursor:     "pointer",
+            }}
+            aria-label="Delete step"
+          >
+            <Trash2 size={13} strokeWidth={2} />
+          </motion.button>
+        )}
+      </AnimatePresence>
+    </motion.li>
+  );
+}
+
+// ─── StepInsertDividerLi ─────────────────────────────────────────────────────
+
+function StepInsertDividerLi({ onAdd }: { onAdd: () => void }) {
+  return (
+    <motion.li
+      initial={{ opacity: 0, scaleY: 0 }}
+      animate={{ opacity: 1, scaleY: 1 }}
+      exit={{ opacity: 0, scaleY: 0 }}
+      transition={{ duration: 0.18 }}
+      className="no-print list-none flex items-center gap-2 cursor-pointer"
+      style={{ transformOrigin: "center", padding: "2px 4px" }}
+      onClick={onAdd}
+    >
+      <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+      <motion.span
+        whileHover={{ scale: 1.2 }}
+        className="flex items-center justify-center w-5 h-5 rounded-full"
+        style={{
+          background:  "var(--bg-card)",
+          border:      "1.5px dashed var(--morandi-sage)",
+          color:       "var(--morandi-sage)",
+          flexShrink:  0,
+        }}
+      >
+        <Plus size={10} strokeWidth={2.5} />
+      </motion.span>
+      <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
     </motion.li>
   );
 }
