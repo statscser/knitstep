@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus } from "lucide-react";
 import { parsePatternAction } from "./actions";
@@ -629,7 +629,7 @@ export default function Home() {
         transition={{ duration: 0.6, ease: "easeOut" }}
         className="print-header mb-8 relative w-full max-w-xl flex flex-col items-center gap-3 text-center px-16"
       >
-        <div className="no-print absolute left-2 sm:left-6 top-0 hover:scale-105 transition-transform">
+        <div className="no-print absolute left-4 sm:left-6 top-1 transition-transform">
           <KnitLogo />
         </div>
 
@@ -1376,30 +1376,49 @@ function LangToggle({ lang, onToggle }: { lang: Lang; onToggle: () => void }) {
 
 // ─── KnitLogo ────────────────────────────────────────────────────────────────
 
-function KnitLogo() {
+function KnitLogo({ className = "w-10 h-10 sm:w-12 sm:h-12" }: { className?: string }) {
+  const uid = useId();
+  const clipId = `kl-${uid.replace(/:/g, "")}`;
+
   return (
-    <div className="flex-shrink-0">
-      <svg
-        width="56"
-        height="56"
-        viewBox="0 0 72 72"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <circle cx="36" cy="38" r="22" fill="#E8A89E" opacity="0.25" />
-        <circle cx="36" cy="38" r="22" stroke="#E8A89E" strokeWidth="2.2" fill="none" />
-        <path d="M16 30 Q36 22 56 30" stroke="#E8A89E" strokeWidth="1.8" fill="none" strokeLinecap="round" />
-        <path d="M14 38 Q36 30 58 38" stroke="#E8A89E" strokeWidth="1.8" fill="none" strokeLinecap="round" />
-        <path d="M16 46 Q36 38 56 46" stroke="#E8A89E" strokeWidth="1.8" fill="none" strokeLinecap="round" />
-        <path d="M26 17 Q32 38 26 59" stroke="#E8A89E" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.6" />
-        <path d="M36 16 Q42 38 36 60" stroke="#E8A89E" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.6" />
-        <path d="M46 17 Q40 38 46 59" stroke="#E8A89E" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.6" />
-        <line x1="52" y1="10" x2="20" y2="42" stroke="#8FAF96" strokeWidth="3" strokeLinecap="round" />
-        <circle cx="52" cy="10" r="3.5" fill="#8FAF96" />
-        <rect x="11" y="39" width="12" height="5" rx="2.5" fill="#8FAF96" transform="rotate(-45 17 41.5)" />
-        <path d="M54 38 Q64 28 58 18 Q52 10 56 6" stroke="#E8A89E" strokeWidth="2" fill="none" strokeLinecap="round" />
-      </svg>
-    </div>
+    <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id={clipId}>
+          <circle cx="50" cy="50" r="35" />
+        </clipPath>
+      </defs>
+
+      {/* Needle 1 — steep rightward lean */}
+      <line x1="25" y1="8" x2="75" y2="92" stroke="#C4A882" strokeWidth="4.5" strokeLinecap="round" />
+      <circle cx="25" cy="8" r="5.5" fill="#C4A882" />
+      <circle cx="23" cy="6" r="2" fill="white" fillOpacity="0.4" />
+
+      {/* Needle 2 — shallow rightward lean */}
+      <line x1="8" y1="30" x2="92" y2="70" stroke="#C4A882" strokeWidth="4.5" strokeLinecap="round" />
+      <circle cx="8" cy="30" r="5.5" fill="#C4A882" />
+      <circle cx="6" cy="28" r="2" fill="white" fillOpacity="0.4" />
+
+      {/* Yarn ball — Morandi green */}
+      <circle cx="50" cy="50" r="35" fill="#A8BFA0" />
+
+      {/* Yarn winding texture clipped inside ball */}
+      <g clipPath={`url(#${clipId})`}>
+        <path d="M 72 16 Q 50 50 28 84" stroke="white" strokeOpacity="0.22" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        <path d="M 84 30 Q 65 54 46 78" stroke="white" strokeOpacity="0.15" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <path d="M 60 16 Q 38 50 16 84" stroke="white" strokeOpacity="0.18" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        <path d="M 28 16 Q 50 50 72 84" stroke="black" strokeOpacity="0.07" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <path d="M 16 30 Q 35 54 54 78" stroke="black" strokeOpacity="0.05" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <path d="M 16 42 Q 50 33 84 42" stroke="white" strokeOpacity="0.18" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        <path d="M 15 55 Q 50 46 85 55" stroke="white" strokeOpacity="0.18" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        <path d="M 18 68 Q 50 59 82 68" stroke="white" strokeOpacity="0.12" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        <ellipse cx="52" cy="73" rx="30" ry="16" fill="black" fillOpacity="0.13" />
+        <ellipse cx="37" cy="35" rx="15" ry="11" fill="white" fillOpacity="0.2" />
+      </g>
+
+      {/* Needle tips on top of ball */}
+      <circle cx="75" cy="92" r="3" fill="#C4A882" />
+      <circle cx="92" cy="70" r="3" fill="#C4A882" />
+    </svg>
   );
 }
 
@@ -1921,18 +1940,7 @@ function LoadingSkeleton() {
     >
       {/* Spinning yarn logo */}
       <div className="flex flex-col items-center gap-4 py-6">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-        >
-          <svg width="44" height="44" viewBox="0 0 72 72" fill="none">
-            <circle cx="36" cy="38" r="22" stroke="#E8A89E" strokeWidth="2.2" fill="none" strokeDasharray="8 4" />
-            <path d="M14 38 Q36 30 58 38" stroke="#E8A89E" strokeWidth="1.8" fill="none" strokeLinecap="round" />
-            <path d="M36 16 Q42 38 36 60" stroke="#E8A89E" strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.6" />
-            <line x1="52" y1="10" x2="20" y2="42" stroke="#8FAF96" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="52" cy="10" r="3.5" fill="#8FAF96" />
-          </svg>
-        </motion.div>
+        <KnitLogo className="w-14 h-14" />
 
         {/* Skeleton rows */}
         <div className="w-full flex flex-col gap-3 mt-2">
