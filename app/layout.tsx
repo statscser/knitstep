@@ -15,20 +15,20 @@ const mPlusRounded = M_PLUS_Rounded_1c({
 });
 
 export const metadata: Metadata = {
-  title: "织步 KnitStep - 智能编织助手",
+  title: "织步 KnitStep - 智能编织步骤清单",
   description: "一键转换中英文图解，智能识别编织步骤，时刻追踪编织进度",
   icons: {
     icon: "/icon.svg",
     apple: "/icon.svg",
   },
   openGraph: {
-    title: "织步 KnitStep - 智能编织助手",
+    title: "织步 KnitStep - 智能编织步骤清单",
     description: "一键转换中英文图解，智能识别编织步骤，时刻追踪编织进度",
     images: [{ url: "/icon.svg", width: 512, height: 512 }],
   },
   twitter: {
     card: "summary",
-    title: "织步 KnitStep - 智能编织助手",
+    title: "织步 KnitStep - 智能编织步骤清单",
     description: "一键转换中英文图解，智能识别编织步骤，时刻追踪编织进度",
     images: ["/icon.svg"],
   },
