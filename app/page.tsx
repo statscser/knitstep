@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp } from "lucide-react";
 import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -237,6 +237,13 @@ export default function Home() {
   const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
   const [isEditMode, setIsEditMode]                 = useState(false);
+  const [showBackToTop, setShowBackToTop]           = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setShowBackToTop(window.scrollY > 320);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [rateLimitSecondsLeft, setRateLimitSecondsLeft] = useState<number | null>(null);
 
   // Countdown timer for rate-limit (429)
@@ -1399,6 +1406,36 @@ export default function Home() {
               </>
             )}
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Back to top ── */}
+      <AnimatePresence>
+        {showBackToTop && (
+          <motion.button
+            key="back-to-top"
+            initial={{ opacity: 0, y: 16, scale: 0.85 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.85 }}
+            transition={{ type: "spring", stiffness: 380, damping: 22 }}
+            whileHover={{ scale: 1.12, y: -2 }}
+            whileTap={{ scale: 0.92 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            className="no-print fixed bottom-6 right-5 z-40 flex flex-col items-center justify-center gap-0.5"
+            aria-label="Back to top"
+            style={{
+              width:        "46px",
+              height:       "46px",
+              borderRadius: "999px",
+              background:   "var(--morandi-pink)",
+              boxShadow:    "0 4px 18px -4px rgba(231,183,180,0.6)",
+              border:       "none",
+              cursor:       "pointer",
+              color:        "#fff",
+            }}
+          >
+            <ChevronUp size={20} strokeWidth={2.5} />
+          </motion.button>
         )}
       </AnimatePresence>
 
