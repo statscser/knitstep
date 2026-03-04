@@ -409,12 +409,13 @@ export default function Home() {
       const res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
-      const rawSteps: { text: string; original?: string }[] = data.steps;
+      const rawSteps: { text: string; original?: string; isHeader?: boolean }[] = data.steps;
       const parsed: Step[] = rawSteps.map((s, idx) => ({
         id:       Date.now() + idx,
         text:     s.text,
         original: s.original,
         checked:  false,
+        isHeader: s.isHeader,
       }));
       setSteps(parsed);
       setHasConverted(true);
@@ -1643,7 +1644,7 @@ function StepItem({
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: index * 0.06 }}
-        className="flex items-center gap-2 px-5 py-3 select-none"
+        className="flex items-center gap-2 px-4 py-2 select-none"
         style={{
           background:   "var(--morandi-sage)",
           borderRadius: "1.25rem",
@@ -1692,7 +1693,7 @@ function StepItem({
       whileHover={(editing || isEditMode) ? undefined : { y: -1 }}
       whileTap={(editing || isEditMode) ? undefined : { scale: 0.985 }}
       onClick={(editing || isEditMode) ? undefined : onToggle}
-      className={`print-step flex items-start gap-3 px-5 py-4 select-none ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
+      className={`print-step flex items-start gap-3 px-4 py-2.5 select-none ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
       data-checked={step.checked}
       style={{
         background:   editing
