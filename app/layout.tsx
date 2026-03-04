@@ -15,8 +15,23 @@ const mPlusRounded = M_PLUS_Rounded_1c({
 });
 
 export const metadata: Metadata = {
-  title: "KnitStep · 编织图解助手",
-  description: "粘贴编织图解，一键生成可勾选的步骤清单",
+  title: "KnitStep 织步 - 智能编织助手",
+  description: "将你的编织图解转为可勾选的步骤清单 · Turn knitting patterns into interactive checklists",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "KnitStep 织步 - 智能编织助手",
+    description: "将你的编织图解转为可勾选的步骤清单 · Turn knitting patterns into interactive checklists",
+    images: [{ url: "/logo.png", width: 512, height: 512 }],
+  },
+  twitter: {
+    card: "summary",
+    title: "KnitStep 织步 - 智能编织助手",
+    description: "将你的编织图解转为可勾选的步骤清单 · Turn knitting patterns into interactive checklists",
+    images: ["/logo.png"],
+  },
 };
 
 export default function RootLayout({

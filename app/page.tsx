@@ -42,7 +42,7 @@ const dict = {
     errorKey:       "API Key 无效，请检查 .env.local 文件。",
     errorModel:     "模型暂不可用，请稍后重试。",
     errorUnknown:   "解析失败，请稍后重试。",
-    errorFileTooLarge: "文件过大（建议 7MB 以内），请压缩后再试。",
+    errorFileTooLarge: "图片过大（请控制在 5MB 以内），请压缩后再试。",
     compressing:    "正在压缩图片...",
     uploadTitle:    "拖拽图片或 PDF 到这里",
     uploadSub:      "KnitStep 帮你识别编织步骤",
@@ -67,6 +67,8 @@ const dict = {
     deleteConfirm:  "确定要删除这个项目吗？",
     editMode:       "编辑",
     editModeDone:   "完成",
+    trySample:      "试试示例图解",
+    feedback:       "有建议或报错？请告诉我！",
   },
   en: {
     subtitle:       "Turn your knitting patterns into a checklist",
@@ -80,7 +82,7 @@ const dict = {
     errorKey:       "Invalid API key. Please check your .env.local file.",
     errorModel:     "Model unavailable. Please try again later.",
     errorUnknown:   "Parsing failed. Please try again.",
-    errorFileTooLarge: "File too large (keep under 7 MB). Try compressing the PDF first.",
+    errorFileTooLarge: "Image too large (max 5 MB). Please compress it and try again.",
     compressing:    "Compressing image...",
     uploadTitle:    "Drag an image or PDF here",
     uploadSub:      "KnitStep will recognize your knitting steps",
@@ -105,8 +107,41 @@ const dict = {
     deleteConfirm:  "Delete this project?",
     editMode:       "Edit",
     editModeDone:   "Done",
+    trySample:      "Try Sample Pattern",
+    feedback:       "Feedback or bugs? Tell us",
   },
 } as const;
+
+// ─── Sample pattern ──────────────────────────────────────────────────────────
+
+const SAMPLE_PATTERN = `PATTERN
+BRIM
+Cast 60 (68, 76, 84, 92) stitches onto circular needles. We used a basic Long Tail Cast On.
+
+Place unique marker and join for working in the round, being careful not to twist the stitches.
+
+Round 1: *P2, k2, repeat from * to end of round.
+
+Repeat Round 1 until piece measures 3½ (4, 4½, 5, 5) inches from cast-on edge.
+
+BODY
+Knit every round until piece measures 8 (8, 8¾, 9¼, 10) inches from cast-on edge.
+
+CROWN
+NOTE: If using short circular needles, change to double pointed needles when necessary.
+
+Set-Up Round: Remove unique marker, k3, place unique marker for new end of round, [k15 (17, 19, 21, 23), place marker] 3 times, knit to end of round. [4 total stitch markers, including unique end-of-round marker]
+
+Decrease Round: [Slip slip knit, knit to 2 stitches before next marker, knit 2 together, slip marker] 4 times. [8 stitches decreased]
+
+Next Round: Knit to end of round.
+
+Repeat last two rounds 5 (6, 7, 8, 9) more times. [12 stitches remain]
+
+Cut yarn and thread tail onto a tapestry needle. Sew tail through remaining stitches. Pull taut and bring tail to inside of hat to weave in.
+
+FINISHING
+Weave in ends and block as desired.`;
 
 // ─── Parse logic ─────────────────────────────────────────────────────────────
 
@@ -208,6 +243,17 @@ export default function Home() {
   const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
   const [isEditMode, setIsEditMode]                 = useState(false);
+  const [rateLimitSecondsLeft, setRateLimitSecondsLeft] = useState<number | null>(null);
+
+  // Countdown timer for rate-limit (429)
+  useEffect(() => {
+    if (!rateLimitSecondsLeft) return;
+    const timer = setTimeout(
+      () => setRateLimitSecondsLeft((s) => (s !== null && s > 0 ? s - 1 : null)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [rateLimitSecondsLeft]);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -310,9 +356,10 @@ export default function Home() {
   const t = dict[lang];
 
   async function handleFileUpload(file: File) {
-    // 7 MB raw → ~9.3 MB base64, safely under the 10 MB server-action body limit
-    const MAX_FILE_BYTES = 7 * 1024 * 1024;
-    if (file.size > MAX_FILE_BYTES) {
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;  // 5 MB for images
+    const MAX_FILE_BYTES  = 10 * 1024 * 1024; // 10 MB for PDFs
+    const limit = file.type.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+    if (file.size > limit) {
       setErrorMsg(t.errorFileTooLarge);
       return;
     }
@@ -353,7 +400,8 @@ export default function Home() {
   async function handleConvert() {
     setIsLoading(true);
     setErrorMsg(null);
-    
+    setRateLimitSecondsLeft(null);
+
     // ⚠️ 关键修复：在开始转换前，彻底清空旧的步骤和状态
     // 先清除 currentProjectId，防止 sync effect 把旧项目覆盖为空步骤
     setIsEditMode(false);
@@ -401,7 +449,7 @@ export default function Home() {
       }
     } catch (err: any) {
       const msg = err?.message ?? "";
-      if      (msg === "QUOTA_EXCEEDED")    setErrorMsg(t.errorQuota);
+      if      (msg === "QUOTA_EXCEEDED")    { setRateLimitSecondsLeft(30); }
       else if (msg === "FILE_TOO_LARGE")    setErrorMsg(t.errorFileTooLarge);
       else if (msg === "API_KEY_MISSING")   setErrorMsg(t.errorKey);
       else if (msg === "MODEL_UNAVAILABLE") setErrorMsg(t.errorModel);
@@ -772,6 +820,7 @@ export default function Home() {
                   id="pattern-input"
                   rows={7}
                   suppressHydrationWarning
+                  maxLength={10000}
                   className="w-full p-4 text-base resize-none focus:outline-none transition-all duration-200"
                   style={{
                     background:  "var(--bg)",
@@ -790,6 +839,22 @@ export default function Home() {
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                 />
+                <div className="flex items-center justify-between mt-1.5 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setInputText(SAMPLE_PATTERN)}
+                    className="text-xs font-medium underline-offset-2 underline transition-opacity hover:opacity-70"
+                    style={{ color: "var(--morandi-sage)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    {t.trySample}
+                  </button>
+                  <span
+                    className="text-xs tabular-nums"
+                    style={{ color: inputText.length >= 4800 ? "var(--morandi-blush)" : "var(--text-muted)" }}
+                  >
+                    {inputText.length} / 10000
+                  </span>
+                </div>
 
                 <motion.button
                   onClick={handleConvert}
@@ -838,10 +903,37 @@ export default function Home() {
                   </motion.button>
                 )}
 
-                {/* ── Error message ── */}
+                {/* ── Error / rate-limit countdown ── */}
                 <AnimatePresence>
-                  {errorMsg && (
+                  {rateLimitSecondsLeft !== null && rateLimitSecondsLeft > 0 ? (
                     <motion.p
+                      key="countdown"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3 text-center text-xs font-medium"
+                      style={{ color: "var(--morandi-stone)" }}
+                    >
+                      ⏳ {lang === "zh"
+                        ? `AI 正在休息，${rateLimitSecondsLeft} 秒后可重试…`
+                        : `AI is resting — retry in ${rateLimitSecondsLeft}s…`}
+                    </motion.p>
+                  ) : rateLimitSecondsLeft === 0 ? (
+                    <motion.p
+                      key="countdown-done"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3 text-center text-xs font-medium"
+                      style={{ color: "var(--morandi-green)" }}
+                    >
+                      ✅ {lang === "zh" ? "可以重试了！" : "Ready to retry!"}
+                    </motion.p>
+                  ) : errorMsg ? (
+                    <motion.p
+                      key="error"
                       initial={{ opacity: 0, y: -6 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -6 }}
@@ -851,7 +943,7 @@ export default function Home() {
                     >
                       ⚠️ {errorMsg}
                     </motion.p>
-                  )}
+                  ) : null}
                 </AnimatePresence>
               </motion.div>
             )}
@@ -1059,10 +1151,37 @@ export default function Home() {
                   )}
                 </AnimatePresence>
 
-                {/* ── Error message (AI tab) ── */}
+                {/* ── Error / rate-limit countdown (AI tab) ── */}
                 <AnimatePresence>
-                  {errorMsg && (
+                  {rateLimitSecondsLeft !== null && rateLimitSecondsLeft > 0 ? (
                     <motion.p
+                      key="countdown-ai"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3 text-center text-xs font-medium"
+                      style={{ color: "var(--morandi-stone)" }}
+                    >
+                      ⏳ {lang === "zh"
+                        ? `AI 正在休息，${rateLimitSecondsLeft} 秒后可重试…`
+                        : `AI is resting — retry in ${rateLimitSecondsLeft}s…`}
+                    </motion.p>
+                  ) : rateLimitSecondsLeft === 0 ? (
+                    <motion.p
+                      key="countdown-ai-done"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3 text-center text-xs font-medium"
+                      style={{ color: "var(--morandi-green)" }}
+                    >
+                      ✅ {lang === "zh" ? "可以重试了！" : "Ready to retry!"}
+                    </motion.p>
+                  ) : errorMsg ? (
+                    <motion.p
+                      key="error-ai"
                       initial={{ opacity: 0, y: -6 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -6 }}
@@ -1072,7 +1191,7 @@ export default function Home() {
                     >
                       ⚠️ {errorMsg}
                     </motion.p>
-                  )}
+                  ) : null}
                 </AnimatePresence>
               </motion.div>
             )}
@@ -1306,6 +1425,30 @@ export default function Home() {
                     </motion.p>
                   )}
                 </AnimatePresence>
+
+                {/* ── Feedback link ── */}
+                <div className="no-print mt-6 flex items-center justify-center gap-2 flex-wrap">
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t.feedback}</span>
+                  <a
+                    href="https://www.xiaohongshu.com/search_result?keyword=%E5%A4%A7%E8%83%96%E5%B0%8F%E5%9B%A2%E5%AD%90&type=user"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold underline underline-offset-2 transition-opacity hover:opacity-70"
+                    style={{ color: "var(--morandi-pink)" }}
+                  >
+                    小红书
+                  </a>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>·</span>
+                  <a
+                    href="https://www.instagram.com/gammeeloveknitting/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold underline underline-offset-2 transition-opacity hover:opacity-70"
+                    style={{ color: "var(--morandi-pink)" }}
+                  >
+                    Instagram
+                  </a>
+                </div>
 
                 {/* ── Print-only footer ── */}
                 <div className="print-footer">
