@@ -22,10 +22,7 @@ export async function parsePatternAction(
 
   // Only block duplicate top-level calls, not retries
   if (retryCount === 0) {
-    if (inFlight) {
-      console.warn('⚠️ parsePatternAction called while already in-flight — ignoring duplicate.');
-      throw new Error("UNKNOWN_ERROR");
-    }
+    if (inFlight) throw new Error("UNKNOWN_ERROR");
     inFlight = true;
   }
 
@@ -87,11 +84,7 @@ export async function parsePatternAction(
     const errMessage   = error.message ?? '';
     const errDetails   = error.errorDetails ?? error.response?.data ?? null;
 
-    // Detect TPM vs RPM from the error message / details
     const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? '').toLowerCase();
-    const limitKind = msgLower.includes('token') ? 'TPM (tokens/min)'
-                    : msgLower.includes('request') ? 'RPM (requests/min)'
-                    : 'unknown limit type';
 
     // Detect daily quota (retrying is pointless — resets tomorrow)
     const violations = (errDetails ?? []).flatMap((d: any) => d.violations ?? []);
@@ -104,16 +97,6 @@ export async function parsePatternAction(
       (d['@type'] ?? '').includes('RetryInfo')
     );
     const apiDelaySec = retryInfo?.retryDelay ? parseInt(retryInfo.retryDelay) : null;
-
-    console.error('─── Gemini 429 diagnostic ───────────────────────────────');
-    console.error('HTTP status  :', httpStatus);
-    console.error('Limit kind   :', limitKind, isDailyQuota ? '(DAILY — no retry)' : '');
-    console.error('API retry in :', apiDelaySec != null ? `${apiDelaySec}s` : 'not specified');
-    console.error('Message      :', errMessage);
-    console.error('errorDetails :', JSON.stringify(errDetails, null, 2));
-    console.error('retryCount   :', retryCount);
-    console.error('isImage      :', !!imageBase64, '| mimeType:', imageMimeType ?? 'n/a');
-    console.error('─────────────────────────────────────────────────────────');
 
     // Detect file/payload too large (Gemini returns 400 for oversized inline data)
     const isPayloadTooLarge =
@@ -130,7 +113,6 @@ export async function parsePatternAction(
     const is429 = httpStatus === 429 || errMessage.includes('429');
     if (is429 && !isDailyQuota && retryCount < 3) {
       const wait = apiDelaySec != null ? apiDelaySec * 1000 : Math.pow(2, retryCount + 1) * 1000;
-      console.log(`⚠️ Rate-limited (${limitKind}). Retry ${retryCount + 1}/3 in ${wait / 1000}s…`);
       await sleep(wait);
       return parsePatternAction(text, language, retryCount + 1, imageBase64, imageMimeType);
     }

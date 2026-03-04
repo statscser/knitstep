@@ -15,22 +15,22 @@ const mPlusRounded = M_PLUS_Rounded_1c({
 });
 
 export const metadata: Metadata = {
-  title: "KnitStep 织步 - 智能编织助手",
-  description: "将你的编织图解转为可勾选的步骤清单 · Turn knitting patterns into interactive checklists",
+  title: "织步 KnitStep - 智能编织助手",
+  description: "一键转换中英文图解，智能识别编织步骤，时刻追踪编织进度",
   icons: {
-    icon: "/logo.png",
-    apple: "/logo.png",
+    icon: "/icon.svg",
+    apple: "/icon.svg",
   },
   openGraph: {
-    title: "KnitStep 织步 - 智能编织助手",
-    description: "将你的编织图解转为可勾选的步骤清单 · Turn knitting patterns into interactive checklists",
-    images: [{ url: "/logo.png", width: 512, height: 512 }],
+    title: "织步 KnitStep - 智能编织助手",
+    description: "一键转换中英文图解，智能识别编织步骤，时刻追踪编织进度",
+    images: [{ url: "/icon.svg", width: 512, height: 512 }],
   },
   twitter: {
     card: "summary",
-    title: "KnitStep 织步 - 智能编织助手",
-    description: "将你的编织图解转为可勾选的步骤清单 · Turn knitting patterns into interactive checklists",
-    images: ["/logo.png"],
+    title: "织步 KnitStep - 智能编织助手",
+    description: "一键转换中英文图解，智能识别编织步骤，时刻追踪编织进度",
+    images: ["/icon.svg"],
   },
 };
 
