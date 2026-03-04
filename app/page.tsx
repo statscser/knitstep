@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp } from "lucide-react";
 
+const ACCESS_CODE = "KNITSTEPBYSTEP";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Lang = "zh" | "en";
@@ -237,6 +239,9 @@ export default function Home() {
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
   const [isEditMode, setIsEditMode]                 = useState(false);
   const [showBackToTop, setShowBackToTop]           = useState(false);
+  const [isUnlocked, setIsUnlocked]                 = useState(false);
+  const [codeInput, setCodeInput]                   = useState("");
+  const [codeError, setCodeError]                   = useState(false);
 
   useEffect(() => {
     const onScroll = () => setShowBackToTop(window.scrollY > 320);
@@ -300,6 +305,8 @@ export default function Home() {
     if (savedProjectId && restoredProjects.some((p) => p.id === savedProjectId)) {
       setCurrentProjectId(savedProjectId);
     }
+
+    if (localStorage.getItem("knitstep_access_granted") === "1") setIsUnlocked(true);
 
     hydrated.current = true;
     setMounted(true);
@@ -404,8 +411,8 @@ export default function Home() {
 
     try {
       const body = activeTab === "ai" && uploadedImage
-        ? { text: "", language: lang, imageBase64: uploadedImage.base64, imageMimeType: uploadedImage.mimeType }
-        : { text: inputText, language: lang };
+        ? { text: "", language: lang, imageBase64: uploadedImage.base64, imageMimeType: uploadedImage.mimeType, accessCode: ACCESS_CODE }
+        : { text: inputText, language: lang, accessCode: ACCESS_CODE };
       const res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
@@ -465,6 +472,16 @@ export default function Home() {
       localStorage.removeItem("knitstep-data");
       // 强制页面稍微滚动到顶部
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  function handleUnlock() {
+    if (codeInput.trim().toUpperCase() === ACCESS_CODE) {
+      localStorage.setItem("knitstep_access_granted", "1");
+      setIsUnlocked(true);
+    } else {
+      setCodeError(true);
+      setTimeout(() => setCodeError(false), 600);
     }
   }
 
@@ -615,6 +632,17 @@ export default function Home() {
       // The HTML auto-triggers print on load; Back returns to the app.
       window.location.href = url;
     }
+  }
+
+  if (mounted && !isUnlocked) {
+    return (
+      <AccessGate
+        codeInput={codeInput}
+        setCodeInput={setCodeInput}
+        codeError={codeError}
+        onSubmit={handleUnlock}
+      />
+    );
   }
 
   const checkableSteps = steps.filter((s) => !s.isHeader);
@@ -1543,6 +1571,82 @@ function KnitLogo({ className = "w-10 h-10 sm:w-12 sm:h-12" }: { className?: str
       <circle cx="75" cy="92" r="3" fill="#C4A882" />
       <circle cx="92" cy="70" r="3" fill="#C4A882" />
     </svg>
+  );
+}
+
+// ─── AccessGate ──────────────────────────────────────────────────────────────
+
+interface AccessGateProps {
+  codeInput: string;
+  setCodeInput: (v: string) => void;
+  codeError: boolean;
+  onSubmit: () => void;
+}
+
+function AccessGate({ codeInput, setCodeInput, codeError, onSubmit }: AccessGateProps) {
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-4"
+      style={{ background: "var(--bg)", fontFamily: "var(--font-body)" }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="w-full max-w-sm flex flex-col items-center gap-6 p-8 rounded-3xl"
+        style={{
+          background: "rgba(255,255,255,0.62)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          boxShadow: "0 8px 32px -8px rgba(163,177,138,0.28)",
+          border: "1px solid rgba(255,255,255,0.85)",
+        }}
+      >
+        <KnitLogo className="w-16 h-16" />
+
+        <div className="text-center">
+          <p className="text-base font-bold" style={{ color: "var(--text-main)" }}>
+            KnitStep 内测邀请制开放中
+          </p>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
+            请输入内测邀请码以继续
+          </p>
+        </div>
+
+        <motion.div
+          className="w-full"
+          animate={codeError ? { x: [-8, 8, -6, 6, -3, 3, 0] } : { x: 0 }}
+          transition={{ duration: 0.45 }}
+        >
+          <input
+            type="text"
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+            placeholder="输入邀请码..."
+            autoFocus
+            className="w-full px-4 py-3 rounded-2xl text-sm font-medium text-center outline-none tracking-widest"
+            style={{
+              background: "rgba(255,255,255,0.85)",
+              border: `1.5px solid ${codeError ? "rgba(210,100,100,0.5)" : "rgba(163,177,138,0.4)"}`,
+              color: "var(--text-main)",
+              boxShadow: codeError ? "0 0 0 3px rgba(210,100,100,0.12)" : "none",
+              transition: "border-color 0.2s, box-shadow 0.2s",
+            }}
+          />
+        </motion.div>
+
+        <motion.button
+          whileHover={{ scale: 1.04 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={onSubmit}
+          className="w-full py-3 rounded-2xl text-sm font-semibold tracking-wide"
+          style={{ background: "var(--morandi-pink)", color: "#fff", border: "none", cursor: "pointer" }}
+        >
+          进入 →
+        </motion.button>
+      </motion.div>
+    </div>
   );
 }
 
