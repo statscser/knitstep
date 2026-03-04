@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp } from "lucide-react";
-import { parsePatternAction } from "./actions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -404,17 +403,18 @@ export default function Home() {
     setHasConverted(false);
 
     try {
-      const result = activeTab === "ai" && uploadedImage
-        ? await parsePatternAction("", lang, 0, uploadedImage.base64, uploadedImage.mimeType)
-        : await parsePatternAction(inputText, lang);
-      const parsed: Step[] = (result.steps as any[]).map((s, idx) => ({
-        // ⚠️ 关键修复：使用 Date.now() + idx 确保 ID 绝对唯一，强制 React 刷新 UI
+      const body = activeTab === "ai" && uploadedImage
+        ? { text: "", language: lang, imageBase64: uploadedImage.base64, imageMimeType: uploadedImage.mimeType }
+        : { text: inputText, language: lang };
+      const res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
+      const rawSteps: { text: string; original?: string }[] = data.steps;
+      const parsed: Step[] = rawSteps.map((s, idx) => ({
         id:       Date.now() + idx,
         text:     s.text,
         original: s.original,
         checked:  false,
-        isHeader: s.isHeader,
-        count:    s.count,
       }));
       setSteps(parsed);
       setHasConverted(true);
@@ -815,7 +815,7 @@ export default function Home() {
                       className="text-xs tabular-nums"
                       style={{ color: inputText.length >= 4800 ? "var(--morandi-blush)" : "var(--text-muted)" }}
                     >
-                      {inputText.length} / 5000
+                      {inputText.length} / 10000
                     </span>
                   )}
                 </div>
