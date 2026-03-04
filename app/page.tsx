@@ -525,46 +525,6 @@ export default function Home() {
     setSteps((prev) => prev.filter((s) => s.id !== id));
   }
 
-  function handleSaveToLibrary() {
-    const d = new Date();
-    const defaultName =
-      lang === "zh"
-        ? `${d.getMonth() + 1}月${d.getDate()}日 项目`
-        : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Project`;
-    const currentName = currentProjectId
-      ? (projects.find((p) => p.id === currentProjectId)?.name ?? defaultName)
-      : defaultName;
-    const input = window.prompt(t.projectNamePrompt, currentName);
-    if (input === null) return; // cancelled
-    const finalName = input.trim() || defaultName;
-    const now = Date.now();
-
-    if (currentProjectId) {
-      setProjects((prev) => {
-        const updated = prev.map((p) =>
-          p.id === currentProjectId
-            ? { ...p, name: finalName, steps, rowCount: steps.filter((s) => !s.isHeader).length, lastUpdated: now }
-            : p
-        );
-        localStorage.setItem("knitstep-projects", JSON.stringify(updated));
-        return updated;
-      });
-    } else {
-      const newProject: Project = {
-        id:          now.toString(),
-        name:        finalName,
-        steps,
-        rowCount:    steps.filter((s) => !s.isHeader).length,
-        lastUpdated: now,
-      };
-      setProjects((prev) => {
-        const updated = [newProject, ...prev];
-        localStorage.setItem("knitstep-projects", JSON.stringify(updated));
-        return updated;
-      });
-      setCurrentProjectId(now.toString());
-    }
-  }
 
   function handleLoadProject(id: string) {
     const project = projects.find((p) => p.id === id);
@@ -585,11 +545,19 @@ export default function Home() {
     if (currentProjectId === id) setCurrentProjectId(null);
   }
 
+  function handleRenameProject(id: string, name: string) {
+    setProjects((prev) => {
+      const updated = prev.map((p) => p.id === id ? { ...p, name } : p);
+      localStorage.setItem("knitstep-projects", JSON.stringify(updated));
+      return updated;
+    });
+  }
+
   function handlePrint() {
-    const dateStr = new Date().toLocaleDateString(
-      lang === "zh" ? "zh-CN" : "en-US",
-      { year: "numeric", month: "long", day: "numeric" }
-    );
+    const currentProject = currentProjectId
+      ? projects.find((p) => p.id === currentProjectId)
+      : null;
+    const printTitle = currentProject?.name ?? (lang === "zh" ? "KnitStep · 织步" : "KnitStep");
 
     function esc(s: string) {
       return s
@@ -634,7 +602,7 @@ export default function Home() {
 </style>
 </head>
 <body>
-  <h1>KnitStep · 织步</h1>
+  <h1>${esc(printTitle)}</h1>
   <p class="sub">${esc(t.checklistTitle)}</p>
   ${stepsHtml}
   <div class="footer">
@@ -848,12 +816,14 @@ export default function Home() {
                   >
                     {t.trySample}
                   </button>
-                  <span
-                    className="text-xs tabular-nums"
-                    style={{ color: inputText.length >= 4800 ? "var(--morandi-blush)" : "var(--text-muted)" }}
-                  >
-                    {inputText.length} / 10000
-                  </span>
+                  {mounted && (
+                    <span
+                      className="text-xs tabular-nums"
+                      style={{ color: inputText.length >= 4800 ? "var(--morandi-blush)" : "var(--text-muted)" }}
+                    >
+                      {inputText.length} / 5000
+                    </span>
+                  )}
                 </div>
 
                 <motion.button
@@ -1238,21 +1208,6 @@ export default function Home() {
 
                 {/* Button group + count badge (whole group hidden in print) */}
                 <div className="no-print flex items-center gap-2">
-                  {/* Save to Library — icon always, label hidden on xs */}
-                  <button
-                    onClick={handleSaveToLibrary}
-                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full"
-                    style={{
-                      background: "var(--bg)",
-                      color:      "var(--morandi-green)",
-                      border:     "1px solid var(--border)",
-                      cursor:     "pointer",
-                    }}
-                  >
-                    <Folder size={13} strokeWidth={2} />
-                    <span className="hidden sm:inline">{t.saveToLibrary}</span>
-                  </button>
-
                   {/* Print — icon always, label hidden on xs */}
                   <button
                     onClick={handlePrint}
@@ -1430,7 +1385,7 @@ export default function Home() {
                 <div className="no-print mt-6 flex items-center justify-center gap-2 flex-wrap">
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t.feedback}</span>
                   <a
-                    href="https://www.xiaohongshu.com/search_result?keyword=%E5%A4%A7%E8%83%96%E5%B0%8F%E5%9B%A2%E5%AD%90&type=user"
+                    href="https://xhslink.com/m/A11u8iECHmb"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs font-semibold underline underline-offset-2 transition-opacity hover:opacity-70"
@@ -1470,6 +1425,7 @@ export default function Home() {
             onClose={() => setShowProjectsModal(false)}
             onLoad={handleLoadProject}
             onDelete={handleDeleteProject}
+            onRename={handleRenameProject}
           />
         )}
       </AnimatePresence>
@@ -1939,6 +1895,7 @@ function ProjectsModal({
   onClose,
   onLoad,
   onDelete,
+  onRename,
 }: {
   projects: Project[];
   lang: Lang;
@@ -1946,8 +1903,26 @@ function ProjectsModal({
   onClose: () => void;
   onLoad: (id: string) => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, name: string) => void;
 }) {
   const t = dict[lang];
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  function startRename(id: string, currentName: string) {
+    setEditingId(id);
+    setEditingName(currentName);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  }
+
+  function commitRename() {
+    if (editingId && editingName.trim()) {
+      onRename(editingId, editingName.trim());
+    }
+    setEditingId(null);
+  }
+
   return (
     <motion.div
       key="projects-backdrop"
@@ -2020,9 +1995,39 @@ function ProjectsModal({
                   }}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text-main)" }}>
-                      {project.name}
-                    </p>
+                    {editingId === project.id ? (
+                      <input
+                        ref={nameInputRef}
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter")  { e.preventDefault(); commitRename(); }
+                          if (e.key === "Escape") { setEditingId(null); }
+                        }}
+                        className="w-full text-sm font-semibold"
+                        style={{
+                          background:   "transparent",
+                          border:       "1px solid var(--morandi-pink)",
+                          borderRadius: "0.4rem",
+                          padding:      "1px 5px",
+                          outline:      "none",
+                          color:        "var(--text-main)",
+                        }}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => startRename(project.id, project.name)}
+                        className="flex items-center gap-1 max-w-full text-left"
+                        style={{ background: "none", border: "none", cursor: "text", padding: 0 }}
+                        title={lang === "zh" ? "点击编辑名称" : "Click to rename"}
+                      >
+                        <span className="text-sm font-semibold truncate" style={{ color: "var(--text-main)" }}>
+                          {project.name}
+                        </span>
+                        <Edit3 size={11} strokeWidth={2} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                      </button>
+                    )}
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                       {date} · {done}/{total}
                     </p>
@@ -2081,22 +2086,43 @@ function LoadingSkeleton() {
         borderRadius: "2rem",
       }}
     >
-      {/* Spinning yarn logo */}
-      <div className="flex flex-col items-center gap-4 py-6">
-        <KnitLogo className="w-14 h-14" />
+      <div className="flex flex-col items-center gap-5 py-6">
+
+        {/* Animated progress dots */}
+        <div className="flex items-end gap-1.5">
+          {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+            <motion.span
+              key={i}
+              animate={{ scaleY: [0.4, 1, 0.4], opacity: [0.35, 1, 0.35] }}
+              transition={{
+                repeat:   Infinity,
+                duration: 1.1,
+                delay:    i * 0.11,
+                ease:     "easeInOut",
+              }}
+              style={{
+                display:      "inline-block",
+                width:        "6px",
+                height:       i % 2 === 0 ? "18px" : "12px",
+                borderRadius: "9999px",
+                background:   i % 3 === 2
+                  ? "var(--morandi-pink)"
+                  : "var(--morandi-green)",
+                transformOrigin: "bottom",
+              }}
+            />
+          ))}
+        </div>
 
         {/* Skeleton rows */}
-        <div className="w-full flex flex-col gap-3 mt-2">
-          {[100, 80, 90, 70].map((w, i) => (
+        <div className="w-full flex flex-col gap-3 mt-1">
+          {[100, 82, 92, 68].map((w, i) => (
             <motion.div
               key={i}
-              animate={{ opacity: [0.4, 0.9, 0.4] }}
-              transition={{ repeat: Infinity, duration: 1.4, delay: i * 0.15, ease: "easeInOut" }}
-              className="h-12 rounded-2xl"
-              style={{
-                width:      `${w}%`,
-                background: "var(--border)",
-              }}
+              animate={{ opacity: [0.3, 0.65, 0.3] }}
+              transition={{ repeat: Infinity, duration: 1.5, delay: i * 0.18, ease: "easeInOut" }}
+              className="h-11 rounded-2xl"
+              style={{ width: `${w}%`, background: "var(--border)" }}
             />
           ))}
         </div>
