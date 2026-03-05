@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, Video } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
 
@@ -260,6 +260,10 @@ export default function Home() {
   const [isUnlocked, setIsUnlocked]                 = useState(false);
   const [codeInput, setCodeInput]                   = useState("");
   const [codeError, setCodeError]                   = useState(false);
+  const [dragIndex, setDragIndex]                   = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex]           = useState<number | null>(null);
+  const [lightboxIndex, setLightboxIndex]           = useState<number | null>(null);
+  const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
     const onScroll = () => setShowBackToTop(window.scrollY > 320);
@@ -277,6 +281,18 @@ export default function Home() {
     );
     return () => clearTimeout(timer);
   }, [rateLimitSecondsLeft]);
+
+  // Lightbox keyboard navigation
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft")  setLightboxIndex((i) => (i !== null ? Math.max(0, i - 1) : null));
+      if (e.key === "ArrowRight") setLightboxIndex((i) => (i !== null ? Math.min(uploadedImages.length - 1, i + 1) : null));
+      if (e.key === "Escape")     setLightboxIndex(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [lightboxIndex, uploadedImages.length]);
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
@@ -1147,16 +1163,46 @@ export default function Home() {
                         {uploadedImages.map((img, i) => (
                           <div
                             key={i}
+                            draggable
+                            onDragStart={() => { setDragIndex(i); setDragOverIndex(null); }}
+                            onDragOver={(e) => { e.preventDefault(); if (dragOverIndex !== i) setDragOverIndex(i); }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (dragIndex === null || dragIndex === i) { setDragIndex(null); setDragOverIndex(null); return; }
+                              setUploadedImages((prev) => {
+                                const next = [...prev];
+                                const [moved] = next.splice(dragIndex, 1);
+                                next.splice(i, 0, moved);
+                                return next;
+                              });
+                              setDragIndex(null); setDragOverIndex(null);
+                            }}
+                            onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                            onClick={() => setLightboxIndex(i)}
                             className="relative flex-shrink-0 rounded-xl overflow-hidden"
-                            style={{ width: "72px", height: "72px", border: "1.5px solid var(--border)" }}
+                            style={{
+                              width: "72px", height: "72px",
+                              border: dragOverIndex === i ? "2px solid var(--morandi-pink)" : "1.5px solid var(--border)",
+                              opacity: dragIndex === i ? 0.4 : 1,
+                              cursor: dragIndex !== null ? "grabbing" : "grab",
+                              transition: "opacity 0.15s, border-color 0.15s",
+                            }}
                           >
                             <img
                               src={img.previewUrl}
                               alt={`pattern ${i + 1}`}
                               className="w-full h-full object-cover"
+                              draggable={false}
                             />
+                            {/* Sequence badge — bottom-left */}
+                            <span
+                              className="absolute bottom-0.5 left-1 text-xs font-bold leading-none"
+                              style={{ color: "#fff", textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}
+                            >
+                              {i + 1}
+                            </span>
                             <button
-                              onClick={() => setUploadedImages((prev) => prev.filter((_, idx) => idx !== i))}
+                              onClick={(e) => { e.stopPropagation(); setUploadedImages((prev) => prev.filter((_, idx) => idx !== i)); }}
                               className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold"
                               style={{ background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", cursor: "pointer", lineHeight: 0 }}
                             >
@@ -1648,6 +1694,111 @@ export default function Home() {
             onDelete={handleDeleteProject}
             onRename={handleRenameProject}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── Image Lightbox ── */}
+      <AnimatePresence>
+        {lightboxIndex !== null && uploadedImages[lightboxIndex] && (
+          <motion.div
+            key="lightbox"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.88)" }}
+            onClick={() => setLightboxIndex(null)}
+            onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
+            onTouchEnd={(e) => {
+              if (touchStartX.current === null) return;
+              const dx = e.changedTouches[0].clientX - touchStartX.current;
+              touchStartX.current = null;
+              if (Math.abs(dx) < 40) return;
+              if (dx < 0) setLightboxIndex((i) => (i !== null ? Math.min(uploadedImages.length - 1, i + 1) : null));
+              else         setLightboxIndex((i) => (i !== null ? Math.max(0, i - 1) : null));
+            }}
+          >
+            {/* Main image */}
+            <motion.img
+              key={lightboxIndex}
+              src={uploadedImages[lightboxIndex].previewUrl}
+              alt={`pattern ${lightboxIndex + 1}`}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.18 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: "min(92vw, 640px)",
+                maxHeight: "80vh",
+                objectFit: "contain",
+                borderRadius: "1rem",
+                userSelect: "none",
+              }}
+            />
+
+            {/* Counter badge */}
+            <div
+              className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-sm font-semibold"
+              style={{ background: "rgba(255,255,255,0.12)", color: "#fff", backdropFilter: "blur(6px)" }}
+            >
+              {lightboxIndex + 1} / {uploadedImages.length}
+            </div>
+
+            {/* Close button */}
+            <button
+              onClick={() => setLightboxIndex(null)}
+              className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full"
+              style={{ background: "rgba(255,255,255,0.15)", border: "none", cursor: "pointer", color: "#fff" }}
+            >
+              <X size={18} strokeWidth={2.5} />
+            </button>
+
+            {/* Prev arrow */}
+            {lightboxIndex > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setLightboxIndex((i) => (i !== null ? i - 1 : null)); }}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full"
+                style={{ background: "rgba(255,255,255,0.15)", border: "none", cursor: "pointer", color: "#fff" }}
+              >
+                <ChevronLeft size={22} strokeWidth={2.5} />
+              </button>
+            )}
+
+            {/* Next arrow */}
+            {lightboxIndex < uploadedImages.length - 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setLightboxIndex((i) => (i !== null ? i + 1 : null)); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full"
+                style={{ background: "rgba(255,255,255,0.15)", border: "none", cursor: "pointer", color: "#fff" }}
+              >
+                <ChevronRight size={22} strokeWidth={2.5} />
+              </button>
+            )}
+
+            {/* Dot indicators */}
+            {uploadedImages.length > 1 && (
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {uploadedImages.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={(e) => { e.stopPropagation(); setLightboxIndex(i); }}
+                    style={{
+                      width: i === lightboxIndex ? "18px" : "6px",
+                      height: "6px",
+                      borderRadius: "999px",
+                      background: i === lightboxIndex ? "var(--morandi-pink)" : "rgba(255,255,255,0.4)",
+                      border: "none",
+                      cursor: "pointer",
+                      transition: "width 0.2s, background 0.2s",
+                      padding: 0,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
