@@ -36,14 +36,24 @@ async function runGemini(
   text: string,
   language: "zh" | "en",
   retryCount: number,
-  imageBase64?: string,
-  imageMimeType?: string,
+  images?: { base64: string; mimeType: string }[],
 ): Promise<ParsedStep[]> {
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
+  const hasImages = images && images.length > 0;
+  const isMulti   = hasImages && images!.length > 1;
+
+  // Prepended only when multiple images are supplied
+  const multiHeader = isMulti
+    ? (language === "zh"
+        ? "注意：以下提供了多张图片，它们是同一编织图解的连续部分。请按顺序分析所有图片，合并信息，生成一份连贯的、不重复的完整步骤清单。\n\n"
+        : "Note: You are provided with multiple images that represent sequential parts of a single knitting/crochet pattern. Please analyze them in order, merge the information, and produce one continuous, logical checklist without duplicating steps that might overlap between images.\n\n")
+    : "";
+
   const prompt =
-    language === "zh"
-      ? `你是一位专业的编织翻译专家。请${imageBase64 ? "分析这张编织图解图片，提取所有步骤并" : "将以下英文图解"}转换为中文步骤清单。
+    multiHeader +
+    (language === "zh"
+      ? `你是一位专业的编织翻译专家。请${hasImages ? "分析这张编织图解图片，提取所有步骤并" : "将以下英文图解"}转换为中文步骤清单。
 
        【内容过滤】：
        自动跳过以下说明性内容，不要将其转为步骤：尺寸 (Size)、材料/用线 (Materials/Yarn)、工具/建议用针 (Tools/Needles)、密度 (Gauge/Tension)。
@@ -65,9 +75,9 @@ async function runGemini(
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
        如果原文本身已经是中文，则不需要 original 字段，只返回 text 字段即可。
        正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}
-       ${imageBase64 ? "" : `\n       图解文本如下：\n       ${text}`}`
+       ${hasImages ? "" : `\n       图解文本如下：\n       ${text}`}`
       : `You are a professional knitting pattern parser.
-       ${imageBase64 ? "Analyze this knitting pattern image and extract all instructions" : "Parse the following knitting pattern text"} into clear, actionable checklist steps.
+       ${hasImages ? "Analyze the knitting pattern image(s) and extract all instructions" : "Parse the following knitting pattern text"} into clear, actionable checklist steps.
 
        [CONTENT FILTERING]:
        Skip all non-instruction content: Size, Materials/Yarn, Tools/Needles, Gauge/Tension sections.
@@ -79,7 +89,7 @@ async function runGemini(
        3. For a block like "for the next N rows: do X", keep it as ONE step using the original phrasing. Do NOT expand into individual row numbers.
        4. Do NOT skip or omit any instruction, even if it lacks a row label.
        5. Section headings (e.g., "Back", "Sleeve", "Neckline", "Body") that mark a logical new phase: output as a single step with "isHeader": true. Put the heading text in the "text" field with no prefix or decoration.
-       6. ONLY use the ${imageBase64 ? "image" : "pattern text below"}. Do NOT invent any steps.
+       6. ONLY use the ${hasImages ? "image(s)" : "pattern text below"}. Do NOT invent any steps.
 
        [OUTPUT FORMAT — CRITICAL]:
        Return a single JSON object where "steps" is a STRICTLY FLAT one-dimensional array. All steps and headers are at the same level — no nesting.
@@ -87,10 +97,13 @@ async function runGemini(
        Header step fields: "text" (string), "isHeader": true.
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
        Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}
-       ${imageBase64 ? "" : `\n       Pattern:\n       ${text}`}`;
+       ${hasImages ? "" : `\n       Pattern:\n       ${text}`}`);
 
-  const contents = imageBase64
-    ? [{ inlineData: { mimeType: imageMimeType!, data: imageBase64 } }, prompt]
+  const contents = hasImages
+    ? [
+        ...images!.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
+        prompt,
+      ]
     : prompt;
 
   try {
@@ -128,7 +141,7 @@ async function runGemini(
     if (is429 && !isDailyQuota && retryCount < 3) {
       const wait = apiDelaySec != null ? apiDelaySec * 1000 : Math.pow(2, retryCount + 1) * 1000;
       await sleep(wait);
-      return runGemini(text, language, retryCount + 1, imageBase64, imageMimeType);
+      return runGemini(text, language, retryCount + 1, images);
     }
 
     throw new Error(is429 ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
@@ -147,11 +160,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, language, imageBase64, imageMimeType, accessCode } = body as {
+    const { text, language, images, accessCode } = body as {
       text: string;
       language: "zh" | "en";
-      imageBase64?: string;
-      imageMimeType?: string;
+      images?: { base64: string; mimeType: string }[];
       accessCode?: string;
     };
 
@@ -160,7 +172,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
     }
 
-    const steps = await runGemini(text, language, 0, imageBase64, imageMimeType);
+    const steps = await runGemini(text, language, 0, images);
     return NextResponse.json({ steps });
   } catch (err: any) {
     const msg = err?.message ?? "UNKNOWN_ERROR";

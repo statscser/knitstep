@@ -44,6 +44,8 @@ const dict = {
     errorModel:     "模型暂不可用，请稍后重试。",
     errorUnknown:   "解析失败，请稍后重试。",
     errorFileTooLarge: "图片过大（请控制在 5MB 以内），请压缩后再试。",
+    errorMaxImages: "最多上传 8 张图片。",
+    clearAll:       "清除全部",
     compressing:    "正在压缩图片...",
     uploadTitle:    "拖拽图片或 PDF 到这里",
     uploadSub:      "KnitStep 帮你识别编织步骤",
@@ -89,6 +91,8 @@ const dict = {
     errorModel:     "Model unavailable. Please try again later.",
     errorUnknown:   "Parsing failed. Please try again.",
     errorFileTooLarge: "Image too large (max 5 MB). Please compress it and try again.",
+    errorMaxImages: "Maximum 8 images allowed.",
+    clearAll:       "Clear all",
     compressing:    "Compressing image...",
     uploadTitle:    "Drag an image or PDF here",
     uploadSub:      "KnitStep will recognize your knitting steps",
@@ -240,9 +244,9 @@ export default function Home() {
   const [activeTab, setActiveTab]       = useState<"text" | "ai">("text");
   const [isLoading, setIsLoading]       = useState(false);
   const [errorMsg, setErrorMsg]         = useState<string | null>(null);
-  const [uploadedImage, setUploadedImage] = useState<{
+  const [uploadedImages, setUploadedImages] = useState<{
     base64: string; mimeType: string; previewUrl: string;
-  } | null>(null);
+  }[]>([]);
   const [isCompressing, setIsCompressing] = useState(false);
   const [tipVisible, setTipVisible]       = useState(true);
   const [mounted, setMounted]             = useState(false);
@@ -375,7 +379,9 @@ export default function Home() {
 
   const t = dict[lang];
 
-  async function handleFileUpload(file: File) {
+  const MAX_IMAGES = 8;
+
+  async function handleFileUpload(file: File, currentCount?: number) {
     const MAX_IMAGE_BYTES = 5 * 1024 * 1024;  // 5 MB for images
     const MAX_FILE_BYTES  = 10 * 1024 * 1024; // 10 MB for PDFs
     const limit = file.type.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
@@ -386,10 +392,15 @@ export default function Home() {
     setErrorMsg(null);
 
     if (file.type.startsWith("image/")) {
+      // currentCount lets batch callers pass the pre-loop count to avoid stale closure
+      if ((currentCount ?? uploadedImages.length) >= MAX_IMAGES) {
+        setErrorMsg(t.errorMaxImages);
+        return;
+      }
       setIsCompressing(true);
       try {
         const compressed = await compressImage(file);
-        setUploadedImage(compressed);
+        setUploadedImages((prev) => [...prev, compressed]);
       } catch {
         // Fall back to raw file if compression errors
         const reader = new FileReader();
@@ -397,20 +408,20 @@ export default function Home() {
           const dataUrl = e.target?.result as string;
           const [header, base64] = dataUrl.split(",");
           const mimeType = header.split(":")[1].split(";")[0];
-          setUploadedImage({ base64, mimeType, previewUrl: dataUrl });
+          setUploadedImages((prev) => [...prev, { base64, mimeType, previewUrl: dataUrl }]);
         };
         reader.readAsDataURL(file);
       } finally {
         setIsCompressing(false);
       }
     } else {
-      // PDF or other non-image — pass through as-is (Canvas cannot compress PDFs)
+      // PDF — replace the entire list (PDFs are always single-file)
       const reader = new FileReader();
       reader.onload = (e) => {
         const dataUrl = e.target?.result as string;
         const [header, base64] = dataUrl.split(",");
         const mimeType = header.split(":")[1].split(";")[0];
-        setUploadedImage({ base64, mimeType, previewUrl: dataUrl });
+        setUploadedImages([{ base64, mimeType, previewUrl: dataUrl }]);
       };
       reader.readAsDataURL(file);
     }
@@ -437,8 +448,8 @@ export default function Home() {
           body: JSON.stringify({ videoUrl: videoUrl.trim(), language: lang, accessCode: ACCESS_CODE }),
         });
       } else {
-        const body = activeTab === "ai" && uploadedImage
-          ? { text: "", language: lang, imageBase64: uploadedImage.base64, imageMimeType: uploadedImage.mimeType, accessCode: ACCESS_CODE }
+        const body = activeTab === "ai" && uploadedImages.length > 0
+          ? { text: "", language: lang, images: uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType })), accessCode: ACCESS_CODE }
           : { text: inputText, language: lang, accessCode: ACCESS_CODE };
         res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       }
@@ -683,7 +694,7 @@ export default function Home() {
   const isDisabled = (
     activeTab === "text" ? inputText.trim().length === 0 :
     aiSubTab === "video" ? !videoUrl.trim() :
-    !uploadedImage
+    uploadedImages.length === 0
   ) || isLoading || isCompressing;
 
   return (
@@ -992,7 +1003,7 @@ export default function Home() {
                     return (
                       <button
                         key={sub}
-                        onClick={() => { setAiSubTab(sub); setUploadedImage(null); setVideoUrl(""); setErrorMsg(null); }}
+                        onClick={() => { setAiSubTab(sub); setUploadedImages([]); setVideoUrl(""); setErrorMsg(null); }}
                         className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
                         style={{
                           background: active ? "var(--morandi-sage)" : "var(--bg-card)",
@@ -1081,49 +1092,90 @@ export default function Home() {
                         {t.compressing}
                       </p>
                     </motion.div>
-                  ) : uploadedImage ? (
-                    /* ── Preview state ── */
+                  ) : uploadedImages.length > 0 && uploadedImages[0].mimeType === "application/pdf" ? (
+                    /* ── PDF preview ── */
                     <motion.div
-                      key="preview"
+                      key="pdf-preview"
                       initial={{ opacity: 0, scale: 0.97 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.97 }}
                       transition={{ duration: 0.2 }}
                       className="relative"
                     >
-                      {uploadedImage.mimeType === "application/pdf" ? (
-                        /* ── PDF preview ── */
-                        <div
-                          className="w-full flex flex-col items-center justify-center gap-3 rounded-2xl py-10"
-                          style={{ border: "1.5px solid var(--border)", background: "var(--bg)" }}
-                        >
-                          <FileText size={48} strokeWidth={1.3} style={{ color: "var(--morandi-sage)" }} />
-                          <p className="text-sm font-medium" style={{ color: "var(--text-main)" }}>
-                            {t.uploadPdfReady}
-                          </p>
-                        </div>
-                      ) : (
-                        /* ── Image preview ── */
-                        <img
-                          src={uploadedImage.previewUrl}
-                          alt="pattern preview"
-                          className="w-full object-contain rounded-2xl"
-                          style={{ maxHeight: "220px", border: "1.5px solid var(--border)" }}
-                        />
-                      )}
+                      <div
+                        className="w-full flex flex-col items-center justify-center gap-3 rounded-2xl py-10"
+                        style={{ border: "1.5px solid var(--border)", background: "var(--bg)" }}
+                      >
+                        <FileText size={48} strokeWidth={1.3} style={{ color: "var(--morandi-sage)" }} />
+                        <p className="text-sm font-medium" style={{ color: "var(--text-main)" }}>
+                          {t.uploadPdfReady}
+                        </p>
+                      </div>
                       <button
-                        onClick={() => setUploadedImage(null)}
+                        onClick={() => setUploadedImages([])}
                         className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold"
-                        style={{
-                          background: "rgba(0,0,0,0.45)",
-                          color: "#fff",
-                          border: "none",
-                          cursor: "pointer",
-                          lineHeight: 0,
-                        }}
+                        style={{ background: "rgba(0,0,0,0.45)", color: "#fff", border: "none", cursor: "pointer", lineHeight: 0 }}
                       >
                         ✕
                       </button>
+                    </motion.div>
+                  ) : uploadedImages.length > 0 ? (
+                    /* ── Image gallery ── */
+                    <motion.div
+                      key="gallery"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      {/* Gallery header: count + clear all */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {uploadedImages.length} / {MAX_IMAGES} {lang === "zh" ? "张图片" : "images"}
+                        </span>
+                        <button
+                          onClick={() => setUploadedImages([])}
+                          className="text-xs font-medium"
+                          style={{ color: "var(--morandi-blush)", background: "none", border: "none", cursor: "pointer" }}
+                        >
+                          {t.clearAll}
+                        </button>
+                      </div>
+
+                      {/* Thumbnail row */}
+                      <div className="flex flex-wrap gap-2">
+                        {uploadedImages.map((img, i) => (
+                          <div
+                            key={i}
+                            className="relative flex-shrink-0 rounded-xl overflow-hidden"
+                            style={{ width: "72px", height: "72px", border: "1.5px solid var(--border)" }}
+                          >
+                            <img
+                              src={img.previewUrl}
+                              alt={`pattern ${i + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              onClick={() => setUploadedImages((prev) => prev.filter((_, idx) => idx !== i))}
+                              className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold"
+                              style={{ background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", cursor: "pointer", lineHeight: 0 }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* "Add more" tile */}
+                        {uploadedImages.length < MAX_IMAGES && (
+                          <label
+                            htmlFor="file-upload"
+                            className="flex-shrink-0 flex items-center justify-center rounded-xl cursor-pointer"
+                            style={{ width: "72px", height: "72px", border: "1.5px dashed var(--morandi-sage)", background: "var(--bg)" }}
+                          >
+                            <Plus size={22} strokeWidth={1.8} style={{ color: "var(--morandi-sage)" }} />
+                          </label>
+                        )}
+                      </div>
                     </motion.div>
                   ) : (
                     /* ── Drop zone ── */
@@ -1150,12 +1202,17 @@ export default function Home() {
                         e.currentTarget.style.borderColor = "var(--morandi-sage)";
                         e.currentTarget.style.background  = "var(--bg)";
                       }}
-                      onDrop={(e) => {
+                      onDrop={async (e) => {
                         e.preventDefault();
                         e.currentTarget.style.borderColor = "var(--morandi-sage)";
                         e.currentTarget.style.background  = "var(--bg)";
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) handleFileUpload(file);
+                        const files = Array.from(e.dataTransfer.files ?? []);
+                        const startCount = uploadedImages.length;
+                        const available = MAX_IMAGES - startCount;
+                        if (files.length > available) setErrorMsg(t.errorMaxImages);
+                        for (let i = 0; i < Math.min(files.length, available); i++) {
+                          await handleFileUpload(files[i], startCount + i);
+                        }
                       }}
                     >
                       <motion.div
@@ -1191,19 +1248,26 @@ export default function Home() {
                         id="file-upload"
                         type="file"
                         accept="image/*,application/pdf"
+                        multiple
                         className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileUpload(file);
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files ?? []);
+                          const startCount = uploadedImages.length;
+                          const available = MAX_IMAGES - startCount;
+                          if (files.length > available) setErrorMsg(t.errorMaxImages);
+                          for (let i = 0; i < Math.min(files.length, available); i++) {
+                            await handleFileUpload(files[i], startCount + i);
+                          }
+                          e.target.value = "";
                         }}
                       />
                     </motion.label>
                   )}
                 </AnimatePresence>}
 
-                {/* Convert button — only shown after image is selected */}
+                {/* Convert button — only shown after image(s) are selected */}
                 <AnimatePresence>
-                  {uploadedImage && (
+                  {uploadedImages.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
