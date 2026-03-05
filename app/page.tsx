@@ -270,9 +270,14 @@ export default function Home() {
     const savedLang = localStorage.getItem("knitstep-lang");
     const savedData = localStorage.getItem("knitstep-data");
 
+    // Priority: ?lang= URL param → localStorage → browser language → "zh"
+    const urlParam = new URLSearchParams(window.location.search).get("lang");
     const restoredLang: Lang =
-      savedLang === "zh" || savedLang === "en" ? savedLang : "zh";
+      urlParam === "zh" || urlParam === "en" ? urlParam :
+      savedLang === "zh" || savedLang === "en" ? savedLang :
+      navigator.language.startsWith("zh") ? "zh" : "en";
     setLang(restoredLang);
+    localStorage.setItem("knitstep-lang", restoredLang);
 
     if (savedData) {
       try {
@@ -637,6 +642,8 @@ export default function Home() {
   if (mounted && !isUnlocked) {
     return (
       <AccessGate
+        lang={lang}
+        onToggleLang={toggleLang}
         codeInput={codeInput}
         setCodeInput={setCodeInput}
         codeError={codeError}
@@ -1576,19 +1583,58 @@ function KnitLogo({ className = "w-10 h-10 sm:w-12 sm:h-12" }: { className?: str
 
 // ─── AccessGate ──────────────────────────────────────────────────────────────
 
+const gateDict = {
+  zh: {
+    title:       "KnitStep 内测邀请制开放中",
+    subtitle:    "请输入内测邀请码以继续",
+    placeholder: "输入邀请码...",
+    enter:       "进入 →",
+    switchLang:  "English",
+  },
+  en: {
+    title:       "KnitStep — Invite-Only Beta",
+    subtitle:    "Enter your beta access code to continue",
+    placeholder: "Access code...",
+    enter:       "Enter →",
+    switchLang:  "中文",
+  },
+};
+
 interface AccessGateProps {
+  lang: Lang;
+  onToggleLang: () => void;
   codeInput: string;
   setCodeInput: (v: string) => void;
   codeError: boolean;
   onSubmit: () => void;
 }
 
-function AccessGate({ codeInput, setCodeInput, codeError, onSubmit }: AccessGateProps) {
+function AccessGate({ lang, onToggleLang, codeInput, setCodeInput, codeError, onSubmit }: AccessGateProps) {
+  const g = gateDict[lang];
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center px-4"
       style={{ background: "var(--bg)", fontFamily: "var(--font-body)" }}
     >
+      {/* Lang toggle — top right */}
+      <div className="absolute top-5 right-5">
+        <motion.button
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.94 }}
+          onClick={onToggleLang}
+          className="text-xs font-semibold px-3 py-1.5 rounded-full"
+          style={{
+            background: "rgba(255,255,255,0.7)",
+            color: "var(--text-muted)",
+            border: "1px solid rgba(163,177,138,0.35)",
+            cursor: "pointer",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          {g.switchLang}
+        </motion.button>
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1606,10 +1652,10 @@ function AccessGate({ codeInput, setCodeInput, codeError, onSubmit }: AccessGate
 
         <div className="text-center">
           <p className="text-base font-bold" style={{ color: "var(--text-main)" }}>
-            KnitStep 内测邀请制开放中
+            {g.title}
           </p>
           <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
-            请输入内测邀请码以继续
+            {g.subtitle}
           </p>
         </div>
 
@@ -1623,7 +1669,7 @@ function AccessGate({ codeInput, setCodeInput, codeError, onSubmit }: AccessGate
             value={codeInput}
             onChange={(e) => setCodeInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onSubmit()}
-            placeholder="输入邀请码..."
+            placeholder={g.placeholder}
             autoFocus
             className="w-full px-4 py-3 rounded-2xl text-sm font-medium text-center outline-none tracking-widest"
             style={{
@@ -1643,7 +1689,7 @@ function AccessGate({ codeInput, setCodeInput, codeError, onSubmit }: AccessGate
           className="w-full py-3 rounded-2xl text-sm font-semibold tracking-wide"
           style={{ background: "var(--morandi-pink)", color: "#fff", border: "none", cursor: "pointer" }}
         >
-          进入 →
+          {g.enter}
         </motion.button>
       </motion.div>
     </div>
