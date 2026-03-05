@@ -147,12 +147,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, language, imageBase64, imageMimeType } = body as {
+    const { text, language, imageBase64, imageMimeType, accessCode } = body as {
       text: string;
       language: "zh" | "en";
       imageBase64?: string;
       imageMimeType?: string;
+      accessCode?: string;
     };
+
+    const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
+    if (accessCode !== VALID_CODE) {
+      return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    }
 
     const steps = await runGemini(text, language, 0, imageBase64, imageMimeType);
     return NextResponse.json({ steps });

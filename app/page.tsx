@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, Video } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
 
@@ -69,6 +69,12 @@ const dict = {
     editModeDone:   "完成",
     trySample:      "试试示例图解",
     feedback:       "有建议或报错？请告诉我！",
+    aiSubPhoto:     "图片 / PDF",
+    aiSubVideo:     "视频",
+    videoUrlLabel:    "粘贴 YouTube 链接",
+    videoUrlPlaceholder: "https://www.youtube.com/watch?v=...",
+    loadingVideoBtn:  "✨ AI 正在从视频中提取图解，请稍候...",
+    errorVideoFailed:   "视频处理失败，请重试。",
   },
   en: {
     subtitle:       "Turn your knitting patterns into a checklist",
@@ -108,6 +114,12 @@ const dict = {
     editModeDone:   "Done",
     trySample:      "Try Sample Pattern",
     feedback:       "Feedback or bugs? Tell us",
+    aiSubPhoto:     "Photo / PDF",
+    aiSubVideo:     "Video",
+    videoUrlLabel:    "Paste a YouTube link",
+    videoUrlPlaceholder: "https://www.youtube.com/watch?v=...",
+    loadingVideoBtn:  "✨ Extracting pattern from video, please wait...",
+    errorVideoFailed:   "Video processing failed. Please try again.",
   },
 } as const;
 
@@ -239,6 +251,8 @@ export default function Home() {
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
   const [isEditMode, setIsEditMode]                 = useState(false);
   const [showBackToTop, setShowBackToTop]           = useState(false);
+  const [aiSubTab, setAiSubTab]                     = useState<"photo" | "video">("photo");
+  const [videoUrl, setVideoUrl]                     = useState("");
   const [isUnlocked, setIsUnlocked]                 = useState(false);
   const [codeInput, setCodeInput]                   = useState("");
   const [codeError, setCodeError]                   = useState(false);
@@ -415,10 +429,19 @@ export default function Home() {
     setHasConverted(false);
 
     try {
-      const body = activeTab === "ai" && uploadedImage
-        ? { text: "", language: lang, imageBase64: uploadedImage.base64, imageMimeType: uploadedImage.mimeType, accessCode: ACCESS_CODE }
-        : { text: inputText, language: lang, accessCode: ACCESS_CODE };
-      const res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      let res: Response;
+      if (activeTab === "ai" && aiSubTab === "video") {
+        res = await fetch("/api/parse-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrl: videoUrl.trim(), language: lang, accessCode: ACCESS_CODE }),
+        });
+      } else {
+        const body = activeTab === "ai" && uploadedImage
+          ? { text: "", language: lang, imageBase64: uploadedImage.base64, imageMimeType: uploadedImage.mimeType, accessCode: ACCESS_CODE }
+          : { text: inputText, language: lang, accessCode: ACCESS_CODE };
+        res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
       const rawSteps: { text: string; original?: string; isHeader?: boolean }[] = data.steps;
@@ -456,11 +479,12 @@ export default function Home() {
       }
     } catch (err: any) {
       const msg = err?.message ?? "";
-      if      (msg === "QUOTA_EXCEEDED")    { setRateLimitSecondsLeft(30); }
-      else if (msg === "FILE_TOO_LARGE")    setErrorMsg(t.errorFileTooLarge);
-      else if (msg === "API_KEY_MISSING")   setErrorMsg(t.errorKey);
-      else if (msg === "MODEL_UNAVAILABLE") setErrorMsg(t.errorModel);
-      else                                  setErrorMsg(t.errorUnknown);
+      if      (msg === "QUOTA_EXCEEDED")         { setRateLimitSecondsLeft(30); }
+      else if (msg === "FILE_TOO_LARGE")         setErrorMsg(t.errorFileTooLarge);
+      else if (msg === "API_KEY_MISSING")        setErrorMsg(t.errorKey);
+      else if (msg === "MODEL_UNAVAILABLE")      setErrorMsg(t.errorModel);
+      else if (msg === "VIDEO_PROCESSING_FAILED" || msg === "NO_TEXT_EXTRACTED") setErrorMsg(t.errorVideoFailed);
+      else                                       setErrorMsg(t.errorUnknown);
     } finally {
       setIsLoading(false);
     }
@@ -656,7 +680,11 @@ export default function Home() {
   const doneCount      = checkableSteps.filter((s) => s.checked).length;
   const totalCount     = checkableSteps.length;
   const allDone        = totalCount > 0 && doneCount === totalCount;
-  const isDisabled = (activeTab === "text" ? inputText.trim().length === 0 : !uploadedImage) || isLoading || isCompressing;
+  const isDisabled = (
+    activeTab === "text" ? inputText.trim().length === 0 :
+    aiSubTab === "video" ? !videoUrl.trim() :
+    !uploadedImage
+  ) || isLoading || isCompressing;
 
   return (
     <div
@@ -887,7 +915,7 @@ export default function Home() {
                       transition={{ duration: 0.18 }}
                       className="block"
                     >
-                      {isLoading ? t.loadingBtn : t.convertBtn}
+                      {isLoading ? (aiSubTab === "video" ? t.loadingVideoBtn : t.loadingBtn) : t.convertBtn}
                     </motion.span>
                   </AnimatePresence>
                 </motion.button>
@@ -957,7 +985,76 @@ export default function Home() {
                 exit={{ opacity: 0, x: -14 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
               >
+                {/* ── Photo / Video sub-tab toggle ── */}
+                <div className="flex gap-2 mb-4">
+                  {(["photo", "video"] as const).map((sub) => {
+                    const active = aiSubTab === sub;
+                    return (
+                      <button
+                        key={sub}
+                        onClick={() => { setAiSubTab(sub); setUploadedImage(null); setVideoUrl(""); setErrorMsg(null); }}
+                        className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
+                        style={{
+                          background: active ? "var(--morandi-sage)" : "var(--bg-card)",
+                          color:      active ? "#fff" : "var(--text-muted)",
+                          border:     active ? "none" : "1px solid var(--border)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {sub === "photo" ? <Camera size={13} strokeWidth={2} /> : <Video size={13} strokeWidth={2} />}
+                        {sub === "photo" ? t.aiSubPhoto : t.aiSubVideo}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <AnimatePresence mode="wait">
+                  {/* ── Video sub-tab: YouTube URL only ── */}
+                  {aiSubTab === "video" && (
+                    <motion.div
+                      key="video-panel"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex flex-col gap-3"
+                    >
+                      <input
+                        type="url"
+                        value={videoUrl}
+                        onChange={(e) => setVideoUrl(e.target.value)}
+                        placeholder={t.videoUrlPlaceholder}
+                        className="w-full px-4 py-2.5 rounded-2xl text-sm outline-none"
+                        style={{ background: "var(--bg-card)", border: "1.5px solid var(--border)", color: "var(--text-main)" }}
+                      />
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t.videoUrlLabel}</p>
+
+                      <AnimatePresence>
+                        {videoUrl.trim() && (
+                          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2 }}>
+                            <motion.button
+                              onClick={handleConvert}
+                              disabled={isLoading}
+                              whileHover={isLoading ? {} : { scale: 1.05 }}
+                              whileTap={isLoading ? {} : { scale: 0.95 }}
+                              className="mt-1 w-full py-3.5 text-base font-semibold tracking-wide rounded-2xl"
+                              style={{ background: isLoading ? "var(--morandi-stone)" : "var(--morandi-pink)", color: "#fff", border: "none", cursor: isLoading ? "not-allowed" : "pointer" }}
+                            >
+                              <AnimatePresence mode="wait">
+                                <motion.span key={isLoading ? "loading" : "idle"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }} className="block">
+                                  {isLoading ? t.loadingVideoBtn : t.convertBtn}
+                                </motion.span>
+                              </AnimatePresence>
+                            </motion.button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* ── Photo/PDF sub-tab (existing logic, now wrapped) ── */}
+                {aiSubTab === "photo" && <AnimatePresence mode="wait">
                   {isCompressing ? (
                     /* ── Compressing state ── */
                     <motion.div
@@ -1102,7 +1199,7 @@ export default function Home() {
                       />
                     </motion.label>
                   )}
-                </AnimatePresence>
+                </AnimatePresence>}
 
                 {/* Convert button — only shown after image is selected */}
                 <AnimatePresence>
@@ -1143,7 +1240,7 @@ export default function Home() {
                             transition={{ duration: 0.18 }}
                             className="block"
                           >
-                            {isLoading ? t.loadingBtn : t.convertBtn}
+                            {isLoading ? (aiSubTab === "video" ? t.loadingVideoBtn : t.loadingBtn) : t.convertBtn}
                           </motion.span>
                         </AnimatePresence>
                       </motion.button>
