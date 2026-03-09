@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { db } from "./lib/db";
 import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
@@ -26,6 +27,7 @@ interface Project {
   steps: Step[];
   rowCount: number;
   lastUpdated: number;
+  originalFile?: Blob | File;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────
@@ -296,6 +298,8 @@ export default function Home() {
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
+  // Holds the most-recently uploaded File so it can be persisted in IndexedDB
+  const latestFileRef = useRef<File | undefined>(undefined);
 
   // ── Hydration — restore all state from localStorage on first mount ──
   useEffect(() => {
@@ -326,29 +330,50 @@ export default function Home() {
 
     if (localStorage.getItem("knitstep-tip-dismissed") === "1") setTipVisible(false);
 
-    let restoredProjects: Project[] = [];
-    const savedProjects = localStorage.getItem("knitstep-projects");
-    if (savedProjects) {
-      try {
-        const parsed = JSON.parse(savedProjects);
-        if (Array.isArray(parsed)) {
-          restoredProjects = parsed;
-          setProjects(parsed);
-        }
-      } catch { /* ignore corrupt data */ }
-    }
-
-    // Restore the active project so the sync effect keeps saving without requiring
-    // the user to re-open the project library after a page refresh.
-    const savedProjectId = localStorage.getItem("knitstep-current-project");
-    if (savedProjectId && restoredProjects.some((p) => p.id === savedProjectId)) {
-      setCurrentProjectId(savedProjectId);
-    }
-
     if (localStorage.getItem("knitstep_access_granted") === "1") setIsUnlocked(true);
 
     hydrated.current = true;
     setMounted(true);
+
+    // ── Load projects from IndexedDB; migrate localStorage data if present ──
+    (async () => {
+      try {
+        // Migration: if old localStorage projects exist, move them into Dexie once
+        const rawLegacy = localStorage.getItem("knitstep-projects");
+        if (rawLegacy) {
+          try {
+            const legacy: any[] = JSON.parse(rawLegacy);
+            if (Array.isArray(legacy) && legacy.length > 0) {
+              await db.projects.bulkPut(
+                legacy.map((p) => ({
+                  id:          String(p.id ?? Date.now()),
+                  name:        p.name ?? "Project",
+                  steps:       p.steps ?? [],
+                  rowCount:    p.rowCount ?? 0,
+                  lastUpdated: p.lastUpdated ?? Date.now(),
+                }))
+              );
+            }
+          } catch { /* ignore corrupt legacy data */ }
+          localStorage.removeItem("knitstep-projects");
+        }
+
+        // Load all projects sorted newest-first
+        const dbProjects = await db.projects.orderBy("lastUpdated").reverse().toArray();
+        const loaded = dbProjects as Project[];
+        setProjects(loaded);
+
+        // Restore the active project id so the sync effect keeps saving after refresh
+        const savedId = localStorage.getItem("knitstep-current-project");
+        if (savedId && loaded.some((p) => p.id === savedId)) {
+          setCurrentProjectId(savedId);
+        } else if (savedId) {
+          localStorage.removeItem("knitstep-current-project");
+        }
+      } catch (err) {
+        console.error("[KnitStep] Failed to load projects from IndexedDB:", err);
+      }
+    })();
   }, []);
 
   // ── Persistence — save whenever relevant state changes ──
@@ -371,19 +396,25 @@ export default function Home() {
     }
   }, [currentProjectId]);
 
-  // ── Project sync — update active project whenever steps change ──
+  // ── Project sync — update active project in state + IndexedDB whenever steps change ──
   useEffect(() => {
     if (!hydrated.current) return;
     if (!currentProjectId) return;
-    setProjects((prev) => {
-      const updated = prev.map((p) =>
+    const now = Date.now();
+    setProjects((prev) =>
+      prev.map((p) =>
         p.id === currentProjectId
-          ? { ...p, steps, rowCount: steps.filter((s) => !s.isHeader).length, lastUpdated: Date.now() }
+          ? { ...p, steps, rowCount: steps.filter((s) => !s.isHeader).length, lastUpdated: now }
           : p
-      );
-      localStorage.setItem("knitstep-projects", JSON.stringify(updated));
-      return updated;
-    });
+      )
+    );
+    db.projects
+      .update(currentProjectId, {
+        steps,
+        rowCount: steps.filter((s) => !s.isHeader).length,
+        lastUpdated: now,
+      })
+      .catch((err) => console.error("[KnitStep] Failed to sync project:", err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [steps, currentProjectId]);
 
@@ -406,6 +437,9 @@ export default function Home() {
       return;
     }
     setErrorMsg(null);
+
+    // Capture original file for IndexedDB storage; replace on every new upload
+    latestFileRef.current = file;
 
     if (file.type.startsWith("image/")) {
       // currentCount lets batch callers pass the pre-loop count to avoid stale closure
@@ -491,17 +525,20 @@ export default function Home() {
             ? `${d.getMonth() + 1}月${d.getDate()}日 项目`
             : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Project`;
         const newProject: Project = {
-          id:          now.toString(),
-          name:        projectName,
-          steps:       parsed,
-          rowCount:    parsed.filter((s) => !s.isHeader).length,
-          lastUpdated: now,
+          id:           now.toString(),
+          name:         projectName,
+          steps:        parsed,
+          rowCount:     parsed.filter((s) => !s.isHeader).length,
+          lastUpdated:  now,
+          originalFile: latestFileRef.current,
         };
-        setProjects((prev) => {
-          const updated = [newProject, ...prev];
-          localStorage.setItem("knitstep-projects", JSON.stringify(updated));
-          return updated;
-        });
+        // Persist to IndexedDB; then add to in-memory state
+        try {
+          await db.projects.put(newProject);
+        } catch (dbErr) {
+          console.error("[KnitStep] Failed to save project to IndexedDB:", dbErr);
+        }
+        setProjects((prev) => [newProject, ...prev]);
         setCurrentProjectId(now.toString());
       }
     } catch (err: any) {
@@ -605,20 +642,18 @@ export default function Home() {
 
   function handleDeleteProject(id: string) {
     if (!confirm(t.deleteConfirm)) return;
-    setProjects((prev) => {
-      const updated = prev.filter((p) => p.id !== id);
-      localStorage.setItem("knitstep-projects", JSON.stringify(updated));
-      return updated;
-    });
+    setProjects((prev) => prev.filter((p) => p.id !== id));
     if (currentProjectId === id) setCurrentProjectId(null);
+    db.projects
+      .delete(id)
+      .catch((err) => console.error("[KnitStep] Failed to delete project:", err));
   }
 
   function handleRenameProject(id: string, name: string) {
-    setProjects((prev) => {
-      const updated = prev.map((p) => p.id === id ? { ...p, name } : p);
-      localStorage.setItem("knitstep-projects", JSON.stringify(updated));
-      return updated;
-    });
+    setProjects((prev) => prev.map((p) => p.id === id ? { ...p, name } : p));
+    db.projects
+      .update(id, { name })
+      .catch((err) => console.error("[KnitStep] Failed to rename project:", err));
   }
 
   function handlePrint() {
