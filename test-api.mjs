@@ -1,8 +1,10 @@
 // test-api.mjs
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// 1. 在这里直接填入你的 API Key 进行测试
-const API_KEY = "AIzaSyBrWREK-RyFwYDEC2wF-qALqwWKodOR94g"; 
+// Read API key from environment — never hardcode secrets in source files
+// Run with: GEMINI_API_KEY=your_key node test-api.mjs
+const API_KEY = process.env.GEMINI_API_KEY;
+if (!API_KEY) { console.error("❌ Set GEMINI_API_KEY env var before running."); process.exit(1); }
 
 // 2. 测试列表：看看哪个模型能跑通
 const MODELS_TO_TEST = [
