@@ -292,8 +292,11 @@ export default function Home() {
   const [isUnlocked, setIsUnlocked]                 = useState(false);
   const [codeInput, setCodeInput]                   = useState("");
   const [codeError, setCodeError]                   = useState(false);
-  const [showReferencePanel, setShowReferencePanel] = useState(false);
-  const [highlightedStepId, setHighlightedStepId]   = useState<number | null>(null);
+  const [showReferencePanel, setShowReferencePanel]     = useState(false);
+  const [highlightedStepId, setHighlightedStepId]       = useState<number | null>(null);
+  const [currentProjectFile, setCurrentProjectFile]     = useState<{ url: string; mimeType: string } | null>(null);
+  const currentProjectFileUrlRef = useRef<string | null>(null);
+  const [hasClickedTarget, setHasClickedTarget]         = useState(false);
   const [dragIndex, setDragIndex]                   = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex]           = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex]           = useState<number | null>(null);
@@ -464,6 +467,34 @@ export default function Home() {
       .update(currentProjectId, { selectedSize })
       .catch((err) => console.error("[KnitStep] Failed to persist selectedSize:", err));
   }, [selectedSize, currentProjectId]);
+
+  // ── Load per-project originalFile and create a blob URL for the reference panel ──
+  useEffect(() => {
+    // Always clear state so the panel never shows a stale file
+    setCurrentProjectFile(null);
+    setHasClickedTarget(false);
+
+    let cancelled = false;
+
+    if (currentProjectId) {
+      db.projects.get(currentProjectId).then((proj) => {
+        if (cancelled || !proj?.originalFile) return;
+        const mimeType = proj.originalFile.type || "application/octet-stream";
+        const url = URL.createObjectURL(proj.originalFile);
+        currentProjectFileUrlRef.current = url;
+        setCurrentProjectFile({ url, mimeType });
+      }).catch((err) => console.error("[KnitStep] Failed to load project file:", err));
+    }
+
+    return () => {
+      cancelled = true;
+      // Revoke the blob URL that was created for the previous project
+      if (currentProjectFileUrlRef.current) {
+        URL.revokeObjectURL(currentProjectFileUrlRef.current);
+        currentProjectFileUrlRef.current = null;
+      }
+    };
+  }, [currentProjectId]);
 
   function toggleLang() {
     const next: Lang = lang === "zh" ? "en" : "zh";
@@ -828,7 +859,7 @@ export default function Home() {
   // Floating nav helpers
   const firstUncheckedIdx = steps.findIndex((s) => !s.isHeader && !s.checked);
   const isDeepInList      = firstUncheckedIdx > 4;
-  const isPdf             = uploadedImages.length > 0 && uploadedImages[0].mimeType === "application/pdf";
+  const isPdf             = currentProjectFile?.mimeType === "application/pdf";
   const isDisabled = (
     activeTab === "text" ? inputText.trim().length === 0 :
     aiSubTab === "video" ? !videoUrl.trim() :
@@ -1836,46 +1867,7 @@ export default function Home() {
               )}
             </AnimatePresence>
 
-            {/* FileText — middle, always visible */}
-            <div className="group relative flex items-center">
-              <span
-                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
-              >
-                {lang === "zh" ? "查看原图" : "View Pattern"}
-              </span>
-              <div style={{ position: "relative" }}>
-                <motion.button
-                  whileHover={{ scale: 1.1, y: -1 }}
-                  whileTap={{ scale: 0.92 }}
-                  onClick={() => setShowReferencePanel(true)}
-                  aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
-                  style={{
-                    width: "44px", height: "44px", borderRadius: "999px",
-                    background: "rgba(168,191,160,0.88)",
-                    backdropFilter: "blur(8px)",
-                    border: "1px solid rgba(255,255,255,0.35)",
-                    boxShadow: "0 4px 16px -4px rgba(120,155,115,0.4)",
-                    color: "#fff", cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}
-                >
-                  <FileText size={17} strokeWidth={1.8} />
-                </motion.button>
-                {/* PDF badge */}
-                {isPdf && (
-                  <span style={{
-                    position: "absolute", top: "2px", right: "2px",
-                    width: "10px", height: "10px", borderRadius: "999px",
-                    background: "var(--morandi-pink)",
-                    border: "1.5px solid #fff",
-                    display: "block",
-                  }} />
-                )}
-              </div>
-            </div>
-
-            {/* Target — bottom, always visible, pulses when step is deep */}
+            {/* Target — middle, always visible, pulses when step is deep */}
             <div className="group relative flex items-center">
               <span
                 className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
@@ -1884,11 +1876,11 @@ export default function Home() {
                 {lang === "zh" ? "回到当前进度" : "Jump to Current"}
               </span>
               <div style={{ position: "relative" }}>
-                {/* Pulse ring — only when step is deep in list */}
-                {isDeepInList && (
+                {/* Pulse ring — repeats until user clicks the button */}
+                {isDeepInList && !hasClickedTarget && (
                   <motion.div
                     animate={{ scale: [1, 1.7, 1.7], opacity: [0.55, 0, 0] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeOut", repeatDelay: 0.8 }}
+                    transition={{ duration: 1.8, ease: "easeOut", repeat: Infinity, repeatDelay: 1 }}
                     style={{
                       position: "absolute", inset: 0, borderRadius: "999px",
                       background: "rgba(143,175,150,0.55)",
@@ -1899,7 +1891,7 @@ export default function Home() {
                 <motion.button
                   whileHover={{ scale: 1.1, y: -1 }}
                   whileTap={{ scale: 0.92 }}
-                  onClick={scrollToFirstUnchecked}
+                  onClick={() => { setHasClickedTarget(true); scrollToFirstUnchecked(); }}
                   aria-label={lang === "zh" ? "回到当前进度" : "Jump to Current"}
                   style={{
                     position: "relative",
@@ -1917,6 +1909,48 @@ export default function Home() {
                 >
                   <Target size={18} strokeWidth={2} />
                 </motion.button>
+              </div>
+            </div>
+
+            {/* FileText — bottom, always visible; dims when no file attached */}
+            <div className="group relative flex items-center">
+              <span
+                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
+              >
+                {lang === "zh"
+                  ? (currentProjectFile ? "查看原图" : "无附件")
+                  : (currentProjectFile ? "View Pattern" : "No file")}
+              </span>
+              <div style={{ position: "relative" }}>
+                <motion.button
+                  whileHover={{ scale: currentProjectFile ? 1.1 : 1, y: currentProjectFile ? -1 : 0 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={() => setShowReferencePanel(true)}
+                  aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
+                  style={{
+                    width: "44px", height: "44px", borderRadius: "999px",
+                    background: currentProjectFile ? "rgba(168,191,160,0.88)" : "rgba(168,191,160,0.42)",
+                    backdropFilter: "blur(8px)",
+                    border: "1px solid rgba(255,255,255,0.35)",
+                    boxShadow: currentProjectFile ? "0 4px 16px -4px rgba(120,155,115,0.4)" : "none",
+                    color: "#fff", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "background 0.3s, box-shadow 0.3s",
+                  }}
+                >
+                  <FileText size={17} strokeWidth={1.8} />
+                </motion.button>
+                {/* PDF badge */}
+                {isPdf && (
+                  <span style={{
+                    position: "absolute", top: "2px", right: "2px",
+                    width: "10px", height: "10px", borderRadius: "999px",
+                    background: "var(--morandi-pink)",
+                    border: "1.5px solid #fff",
+                    display: "block",
+                  }} />
+                )}
               </div>
             </div>
           </motion.div>
@@ -2078,14 +2112,21 @@ export default function Home() {
               </motion.button>
             </div>
 
-            {/* Scrollable image list */}
-            <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-4">
-              {uploadedImages.length > 0 ? (
-                uploadedImages.map((img, i) => (
+            {/* File content */}
+            {currentProjectFile ? (
+              currentProjectFile.mimeType === "application/pdf" ? (
+                /* ── PDF viewer ── */
+                <iframe
+                  src={currentProjectFile.url}
+                  title="Original Pattern"
+                  style={{ flex: 1, width: "100%", border: "none", display: "block" }}
+                />
+              ) : (
+                /* ── Image viewer ── */
+                <div className="flex-1 overflow-y-auto px-4 py-5">
                   <img
-                    key={i}
-                    src={img.previewUrl}
-                    alt={`pattern ${i + 1}`}
+                    src={currentProjectFile.url}
+                    alt="Original Pattern"
                     style={{
                       width: "100%",
                       borderRadius: "1rem",
@@ -2093,15 +2134,17 @@ export default function Home() {
                       boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
                     }}
                   />
-                ))
-              ) : (
-                <div className="flex-1 flex items-center justify-center">
-                  <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "14px" }}>
-                    {lang === "zh" ? "无原始图片" : "No reference image available"}
-                  </p>
                 </div>
-              )}
-            </div>
+              )
+            ) : (
+              /* ── No file attached ── */
+              <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                <FileText size={36} strokeWidth={1.2} style={{ color: "rgba(255,255,255,0.25)" }} />
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px", textAlign: "center" }}>
+                  {lang === "zh" ? "该项目未附加原始图解文件" : "No original file attached to this project"}
+                </p>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
