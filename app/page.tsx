@@ -825,6 +825,10 @@ export default function Home() {
   const doneCount      = checkableSteps.filter((s) => s.checked).length;
   const totalCount     = checkableSteps.length;
   const allDone        = totalCount > 0 && doneCount === totalCount;
+  // Floating nav helpers
+  const firstUncheckedIdx = steps.findIndex((s) => !s.isHeader && !s.checked);
+  const isDeepInList      = firstUncheckedIdx > 4;
+  const isPdf             = uploadedImages.length > 0 && uploadedImages[0].mimeType === "application/pdf";
   const isDisabled = (
     activeTab === "text" ? inputText.trim().length === 0 :
     aiSubTab === "video" ? !videoUrl.trim() :
@@ -1785,70 +1789,54 @@ export default function Home() {
 
       {/* ── Floating Navigation Group ── */}
       <AnimatePresence>
-        {showBackToTop && hasConverted && !isLoading && (
+        {hasConverted && !isLoading && (
           <motion.div
             key="float-nav"
-            initial={{ opacity: 0, x: 20, scale: 0.85 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 20, scale: 0.85 }}
-            transition={{ type: "spring", stiffness: 380, damping: 22 }}
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 16 }}
+            transition={{ type: "spring", stiffness: 380, damping: 24 }}
             className="no-print fixed bottom-6 right-5 z-40 flex flex-col items-end gap-2"
           >
-            {/* Button A: Jump to first unchecked step */}
-            <div className="group relative flex items-center">
-              <span
-                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
-              >
-                {lang === "zh" ? "回到当前进度" : "Jump to Current"}
-              </span>
-              <motion.button
-                whileHover={{ scale: 1.1, y: -1 }}
-                whileTap={{ scale: 0.92 }}
-                onClick={scrollToFirstUnchecked}
-                aria-label={lang === "zh" ? "回到当前进度" : "Jump to Current"}
-                style={{
-                  width: "44px", height: "44px", borderRadius: "999px",
-                  background: "rgba(143,175,150,0.90)",
-                  backdropFilter: "blur(8px)",
-                  border: "1px solid rgba(255,255,255,0.35)",
-                  boxShadow: "0 4px 16px -4px rgba(100,145,110,0.45)",
-                  color: "#fff", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-              >
-                <Target size={18} strokeWidth={2} />
-              </motion.button>
-            </div>
+            {/* ChevronUp — top, only when scrolled */}
+            <AnimatePresence>
+              {showBackToTop && (
+                <motion.div
+                  key="btn-up"
+                  initial={{ opacity: 0, y: 10, scale: 0.82 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.82 }}
+                  transition={{ type: "spring", stiffness: 420, damping: 26 }}
+                  className="group relative flex items-center"
+                >
+                  <span
+                    className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
+                  >
+                    {lang === "zh" ? "回到顶部" : "List Top"}
+                  </span>
+                  <motion.button
+                    whileHover={{ scale: 1.1, y: -1 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={scrollToChecklistTop}
+                    aria-label={lang === "zh" ? "回到顶部" : "List Top"}
+                    style={{
+                      width: "44px", height: "44px", borderRadius: "999px",
+                      background: "rgba(232,168,158,0.88)",
+                      backdropFilter: "blur(8px)",
+                      border: "1px solid rgba(255,255,255,0.35)",
+                      boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
+                      color: "#fff", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <ChevronUp size={19} strokeWidth={2.5} />
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {/* Button B: Scroll to list top */}
-            <div className="group relative flex items-center">
-              <span
-                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
-              >
-                {lang === "zh" ? "回到顶部" : "List Top"}
-              </span>
-              <motion.button
-                whileHover={{ scale: 1.1, y: -1 }}
-                whileTap={{ scale: 0.92 }}
-                onClick={scrollToChecklistTop}
-                aria-label={lang === "zh" ? "回到顶部" : "List Top"}
-                style={{
-                  width: "44px", height: "44px", borderRadius: "999px",
-                  background: "rgba(232,168,158,0.88)",
-                  backdropFilter: "blur(8px)",
-                  border: "1px solid rgba(255,255,255,0.35)",
-                  boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
-                  color: "#fff", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-              >
-                <ChevronUp size={19} strokeWidth={2.5} />
-              </motion.button>
-            </div>
-
-            {/* Button C: Reference Mode */}
+            {/* FileText — middle, always visible */}
             <div className="group relative flex items-center">
               <span
                 className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
@@ -1856,23 +1844,80 @@ export default function Home() {
               >
                 {lang === "zh" ? "查看原图" : "View Pattern"}
               </span>
-              <motion.button
-                whileHover={{ scale: 1.1, y: -1 }}
-                whileTap={{ scale: 0.92 }}
-                onClick={() => setShowReferencePanel(true)}
-                aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
-                style={{
-                  width: "44px", height: "44px", borderRadius: "999px",
-                  background: "rgba(168,191,160,0.88)",
-                  backdropFilter: "blur(8px)",
-                  border: "1px solid rgba(255,255,255,0.35)",
-                  boxShadow: "0 4px 16px -4px rgba(120,155,115,0.4)",
-                  color: "#fff", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
+              <div style={{ position: "relative" }}>
+                <motion.button
+                  whileHover={{ scale: 1.1, y: -1 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={() => setShowReferencePanel(true)}
+                  aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
+                  style={{
+                    width: "44px", height: "44px", borderRadius: "999px",
+                    background: "rgba(168,191,160,0.88)",
+                    backdropFilter: "blur(8px)",
+                    border: "1px solid rgba(255,255,255,0.35)",
+                    boxShadow: "0 4px 16px -4px rgba(120,155,115,0.4)",
+                    color: "#fff", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <FileText size={17} strokeWidth={1.8} />
+                </motion.button>
+                {/* PDF badge */}
+                {isPdf && (
+                  <span style={{
+                    position: "absolute", top: "2px", right: "2px",
+                    width: "10px", height: "10px", borderRadius: "999px",
+                    background: "var(--morandi-pink)",
+                    border: "1.5px solid #fff",
+                    display: "block",
+                  }} />
+                )}
+              </div>
+            </div>
+
+            {/* Target — bottom, always visible, pulses when step is deep */}
+            <div className="group relative flex items-center">
+              <span
+                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
               >
-                <FileText size={17} strokeWidth={1.8} />
-              </motion.button>
+                {lang === "zh" ? "回到当前进度" : "Jump to Current"}
+              </span>
+              <div style={{ position: "relative" }}>
+                {/* Pulse ring — only when step is deep in list */}
+                {isDeepInList && (
+                  <motion.div
+                    animate={{ scale: [1, 1.7, 1.7], opacity: [0.55, 0, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeOut", repeatDelay: 0.8 }}
+                    style={{
+                      position: "absolute", inset: 0, borderRadius: "999px",
+                      background: "rgba(143,175,150,0.55)",
+                      pointerEvents: "none",
+                    }}
+                  />
+                )}
+                <motion.button
+                  whileHover={{ scale: 1.1, y: -1 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={scrollToFirstUnchecked}
+                  aria-label={lang === "zh" ? "回到当前进度" : "Jump to Current"}
+                  style={{
+                    position: "relative",
+                    width: "44px", height: "44px", borderRadius: "999px",
+                    background: isDeepInList ? "rgba(122,160,133,0.95)" : "rgba(143,175,150,0.90)",
+                    backdropFilter: "blur(8px)",
+                    border: "1px solid rgba(255,255,255,0.35)",
+                    boxShadow: isDeepInList
+                      ? "0 4px 20px -4px rgba(90,135,105,0.65)"
+                      : "0 4px 16px -4px rgba(100,145,110,0.45)",
+                    color: "#fff", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "background 0.4s, box-shadow 0.4s",
+                  }}
+                >
+                  <Target size={18} strokeWidth={2} />
+                </motion.button>
+              </div>
             </div>
           </motion.div>
         )}
