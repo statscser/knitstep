@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "./lib/db";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Navigation } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
 
@@ -292,6 +292,7 @@ export default function Home() {
   const [isUnlocked, setIsUnlocked]                 = useState(false);
   const [codeInput, setCodeInput]                   = useState("");
   const [codeError, setCodeError]                   = useState(false);
+  const [showReferencePanel, setShowReferencePanel] = useState(false);
   const [dragIndex, setDragIndex]                   = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex]           = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex]           = useState<number | null>(null);
@@ -330,6 +331,8 @@ export default function Home() {
   const hydrated = useRef(false);
   // Holds the most-recently uploaded File so it can be persisted in IndexedDB
   const latestFileRef = useRef<File | undefined>(undefined);
+  // Ref for the checklist top anchor (used by floating nav "list top" button)
+  const checklistTopRef = useRef<HTMLDivElement>(null);
 
   // ── Hydration — restore all state from localStorage on first mount ──
   useEffect(() => {
@@ -676,6 +679,19 @@ export default function Home() {
   function handleReset() {
     if (!confirm(t.resetConfirm)) return;
     setSteps((prev) => prev.map((s) => ({ ...s, checked: false, subCount: 0 })));
+  }
+
+  function scrollToChecklistTop() {
+    checklistTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function scrollToFirstUnchecked() {
+    const uncheckedIdx = steps.findIndex((s) => !s.isHeader && !s.checked);
+    if (uncheckedIdx === -1) return;
+    // Scroll to the step before the first unchecked for visual context
+    const targetIdx = Math.max(0, uncheckedIdx - 1);
+    const targetId = steps[targetIdx].id;
+    document.getElementById(`step-${targetId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function addStep(insertAt: number) {
@@ -1509,6 +1525,9 @@ export default function Home() {
         {isLoading && <LoadingSkeleton key="skeleton" />}
       </AnimatePresence>
 
+      {/* ── Checklist top anchor (floating nav "list top" target) ── */}
+      <div ref={checklistTopRef} />
+
       {/* ── Results Card ── */}
       <AnimatePresence>
         {hasConverted && !isLoading && (
@@ -1758,33 +1777,74 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* ── Back to top ── */}
+      {/* ── Floating Navigation Group ── */}
       <AnimatePresence>
-        {showBackToTop && (
-          <motion.button
-            key="back-to-top"
-            initial={{ opacity: 0, y: 16, scale: 0.85 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.85 }}
+        {showBackToTop && hasConverted && !isLoading && (
+          <motion.div
+            key="float-nav"
+            initial={{ opacity: 0, x: 20, scale: 0.85 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 20, scale: 0.85 }}
             transition={{ type: "spring", stiffness: 380, damping: 22 }}
-            whileHover={{ scale: 1.12, y: -2 }}
-            whileTap={{ scale: 0.92 }}
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="no-print fixed bottom-6 right-5 z-40 flex flex-col items-center justify-center gap-0.5"
-            aria-label="Back to top"
-            style={{
-              width:        "46px",
-              height:       "46px",
-              borderRadius: "999px",
-              background:   "var(--morandi-pink)",
-              boxShadow:    "0 4px 18px -4px rgba(231,183,180,0.6)",
-              border:       "none",
-              cursor:       "pointer",
-              color:        "#fff",
-            }}
+            className="no-print fixed bottom-6 right-5 z-40 flex flex-col items-center gap-2"
           >
-            <ChevronUp size={20} strokeWidth={2.5} />
-          </motion.button>
+            {/* Button A: Jump to first unchecked step */}
+            <motion.button
+              whileHover={{ scale: 1.1, y: -1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={scrollToFirstUnchecked}
+              aria-label="Go to first unchecked step"
+              style={{
+                width: "44px", height: "44px", borderRadius: "999px",
+                background: "rgba(232,168,158,0.88)",
+                backdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.35)",
+                boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
+                color: "#fff", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <Navigation size={18} strokeWidth={2} />
+            </motion.button>
+
+            {/* Button B: Scroll to list top (SizePicker) */}
+            <motion.button
+              whileHover={{ scale: 1.1, y: -1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={scrollToChecklistTop}
+              aria-label="Scroll to list top"
+              style={{
+                width: "44px", height: "44px", borderRadius: "999px",
+                background: "rgba(232,168,158,0.88)",
+                backdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.35)",
+                boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
+                color: "#fff", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <ChevronUp size={19} strokeWidth={2.5} />
+            </motion.button>
+
+            {/* Button C: Reference Mode */}
+            <motion.button
+              whileHover={{ scale: 1.1, y: -1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setShowReferencePanel(true)}
+              aria-label="Reference mode"
+              style={{
+                width: "44px", height: "44px", borderRadius: "999px",
+                background: "rgba(168,191,160,0.88)",
+                backdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.35)",
+                boxShadow: "0 4px 16px -4px rgba(120,155,115,0.4)",
+                color: "#fff", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <FileText size={17} strokeWidth={1.8} />
+            </motion.button>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1904,6 +1964,69 @@ export default function Home() {
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Reference Panel ── */}
+      <AnimatePresence>
+        {showReferencePanel && (
+          <motion.div
+            key="reference-panel"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="fixed inset-0 z-50 flex flex-col"
+            style={{ background: "rgba(30,24,20,0.88)", backdropFilter: "blur(6px)" }}
+          >
+            {/* Header bar */}
+            <div
+              className="flex items-center justify-between px-5 py-4 shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: "14px", letterSpacing: "0.04em" }}>
+                {lang === "zh" ? "原始图解" : "Original Pattern"}
+              </span>
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.92 }}
+                onClick={() => setShowReferencePanel(false)}
+                style={{
+                  width: "34px", height: "34px", borderRadius: "999px",
+                  background: "rgba(255,255,255,0.12)", border: "none",
+                  cursor: "pointer", color: "#fff",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <X size={17} strokeWidth={2.5} />
+              </motion.button>
+            </div>
+
+            {/* Scrollable image list */}
+            <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-4">
+              {uploadedImages.length > 0 ? (
+                uploadedImages.map((img, i) => (
+                  <img
+                    key={i}
+                    src={img.previewUrl}
+                    alt={`pattern ${i + 1}`}
+                    style={{
+                      width: "100%",
+                      borderRadius: "1rem",
+                      display: "block",
+                      boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
+                    }}
+                  />
+                ))
+              ) : (
+                <div className="flex-1 flex items-center justify-center">
+                  <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "14px" }}>
+                    {lang === "zh" ? "无原始图片" : "No reference image available"}
+                  </p>
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2211,6 +2334,7 @@ function StepItem({
   if (step.isHeader) {
     return (
       <motion.li
+        id={`step-${step.id}`}
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: index * 0.06 }}
@@ -2254,6 +2378,7 @@ function StepItem({
 
   return (
     <motion.li
+      id={`step-${step.id}`}
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: step.checked ? 0.65 : 1, x: 0 }}
       transition={{
