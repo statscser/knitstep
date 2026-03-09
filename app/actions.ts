@@ -3,12 +3,17 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-const MODEL_NAME = "gemini-2.5-flash"
+
+// Prioritized model list — first available/non-rate-limited model wins
+const MODELS_TO_TRY = [
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-2.5-flash-lite',
+] as const;
 
 // Deduplication guard — prevents simultaneous calls in the same server process
 let inFlight = false;
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 type FlatStep = { text: string; original?: string; sizeMap?: Record<string, string> };
 
@@ -21,7 +26,6 @@ function flattenSteps(items: any[]): FlatStep[] {
 
   for (const item of items) {
     if (Array.isArray(item)) {
-      // Unexpected top-level array nesting — recurse
       result.push(...flattenSteps(item));
     } else if (item && typeof item === 'object') {
       if (typeof item.text === 'string' && item.text.trim()) {
@@ -36,7 +40,6 @@ function flattenSteps(items: any[]): FlatStep[] {
         }
         result.push(step);
       }
-      // Recurse into any sub-step collections (all known key variants)
       const subKeys = ['steps', 'sub_steps', 'subSteps', 'substeps', 'children', 'instructions', 'rows'];
       for (const key of subKeys) {
         if (Array.isArray(item[key]) && item[key].length > 0) {
@@ -52,19 +55,16 @@ function flattenSteps(items: any[]): FlatStep[] {
 export async function parsePatternAction(
   text: string,
   language: 'zh' | 'en',
-  retryCount = 0,
+  _retryCount = 0, // kept for API compatibility; fallback now handled via model loop
   imageBase64?: string,
   imageMimeType?: string,
 ) {
   if (!process.env.GEMINI_API_KEY) throw new Error('API_KEY_MISSING');
 
-  // Only block duplicate top-level calls, not retries
-  if (retryCount === 0) {
-    if (inFlight) throw new Error("UNKNOWN_ERROR");
-    inFlight = true;
-  }
+  if (inFlight) throw new Error("UNKNOWN_ERROR");
+  inFlight = true;
 
-  const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+  console.time("AI_CONVERSION");
 
   const prompt = language === 'zh'
     ? `你是一位专业的编织翻译专家。请${imageBase64 ? '分析这张编织图解图片，提取所有步骤并' : '将以下英文图解'}转换为中文清单。
@@ -123,61 +123,75 @@ export async function parsePatternAction(
     ? [{ inlineData: { mimeType: imageMimeType!, data: imageBase64 } }, prompt]
     : prompt;
 
-  try {
-    const result = await model.generateContent(contents);
-    const raw = result.response.text().trim();
-    const jsonStart = raw.indexOf('{');
-    const jsonEnd = raw.lastIndexOf('}');
-    const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+  let lastError: any = null;
 
-    // Flatten any nesting the model may have produced despite instructions
-    const steps = flattenSteps(parsed.steps ?? []);
+  for (let i = 0; i < MODELS_TO_TRY.length; i++) {
+    const modelName = MODELS_TO_TRY[i];
+    console.log(`[AI] Attempt ${i + 1}/${MODELS_TO_TRY.length} — model: ${modelName}`);
 
-    inFlight = false;
+    const model = genAI.getGenerativeModel({ model: modelName });
 
-    // Return as a JSON string — bypasses Next.js Server Action array-nesting
-    // serialization limits ("Maximum array nesting exceeded", digest 942247392).
-    return { stepsJson: JSON.stringify(steps) };
+    try {
+      const result = await model.generateContent(contents);
+      const raw = result.response.text().trim();
 
-  } catch (error: any) {
-    const httpStatus = error.status ?? error.response?.status ?? 'unknown';
-    const errMessage = error.message ?? '';
-    const errDetails = error.errorDetails ?? error.response?.data ?? null;
+      console.log(`[AI] Raw response snippet (${modelName}): ${raw.slice(0, 100)}`);
 
-    const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? '').toLowerCase();
+      const jsonStart = raw.indexOf('{');
+      const jsonEnd = raw.lastIndexOf('}');
+      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
-    // Detect daily quota (retrying is pointless — resets tomorrow)
-    const violations = (errDetails ?? []).flatMap((d: any) => d.violations ?? []);
-    const isDailyQuota = violations.some((v: any) =>
-      (v.quotaId ?? '').toLowerCase().includes('perday')
-    );
+      const steps = flattenSteps(parsed.steps ?? []);
 
-    // Use API-suggested retry delay if provided
-    const retryInfo = (errDetails ?? []).find((d: any) =>
-      (d['@type'] ?? '').includes('RetryInfo')
-    );
-    const apiDelaySec = retryInfo?.retryDelay ? parseInt(retryInfo.retryDelay) : null;
-
-    // Detect file/payload too large (Gemini returns 400 for oversized inline data)
-    const isPayloadTooLarge =
-      httpStatus === 413 ||
-      msgLower.includes('payload size') ||
-      msgLower.includes('too large') ||
-      msgLower.includes('exceeds the limit') ||
-      msgLower.includes('request entity too large');
-    if (isPayloadTooLarge) {
       inFlight = false;
-      throw new Error("FILE_TOO_LARGE");
-    }
+      console.timeEnd("AI_CONVERSION");
 
-    const is429 = httpStatus === 429 || errMessage.includes('429');
-    if (is429 && !isDailyQuota && retryCount < 3) {
-      const wait = apiDelaySec != null ? apiDelaySec * 1000 : Math.pow(2, retryCount + 1) * 1000;
-      await sleep(wait);
-      return parsePatternAction(text, language, retryCount + 1, imageBase64, imageMimeType);
-    }
+      return { stepsJson: JSON.stringify(steps) };
 
-    inFlight = false;
-    throw new Error(is429 ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
+    } catch (error: any) {
+      lastError = error;
+      const httpStatus = error.status ?? error.response?.status ?? 'unknown';
+      const errMessage = error.message ?? '';
+      const errDetails = error.errorDetails ?? error.response?.data ?? null;
+      const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? '').toLowerCase();
+
+      // Payload too large — no point trying other models
+      const isPayloadTooLarge =
+        httpStatus === 413 ||
+        msgLower.includes('payload size') ||
+        msgLower.includes('too large') ||
+        msgLower.includes('exceeds the limit') ||
+        msgLower.includes('request entity too large');
+      if (isPayloadTooLarge) {
+        inFlight = false;
+        console.timeEnd("AI_CONVERSION");
+        throw new Error("FILE_TOO_LARGE");
+      }
+
+      const is429 = httpStatus === 429 || errMessage.includes('429');
+      const is404 = httpStatus === 404 || errMessage.includes('404');
+
+      if (is429) {
+        console.warn(`[AI] ${modelName} → 429 Rate Limit. Moving to next model.`);
+        continue;
+      }
+      if (is404) {
+        console.warn(`[AI] ${modelName} → 404 Not Found. Moving to next model.`);
+        continue;
+      }
+
+      // Unknown error — log and try next model anyway
+      console.warn(`[AI] ${modelName} → unexpected error (${httpStatus}): ${errMessage}. Trying next model.`);
+    }
   }
+
+  // All models exhausted
+  inFlight = false;
+  console.timeEnd("AI_CONVERSION");
+
+  const lastMsg = lastError?.message ?? 'All models failed';
+  const lastStatus = lastError?.status ?? lastError?.response?.status;
+  const wasRateLimit = lastStatus === 429 || lastMsg.includes('429');
+
+  throw new Error(wasRateLimit ? `AI_LIMIT_REACHED: ${lastMsg}` : `AI_MODEL_ERROR: ${lastMsg}`);
 }

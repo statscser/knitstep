@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const MODEL_NAME = "gemini-2.5-flash";
+
+const MODELS_TO_TRY = [
+  "gemini-2.5-flash",
+  "gemini-3-flash-preview",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-2.5-flash-lite",
+] as const;
 
 let inFlight = false;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type ParsedStep = {
   text: string;
@@ -47,15 +52,11 @@ function flattenSteps(items: any[]): ParsedStep[] {
 async function runGemini(
   text: string,
   language: "zh" | "en",
-  retryCount: number,
   images?: { base64: string; mimeType: string }[],
 ): Promise<ParsedStep[]> {
-  const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-
   const hasImages = images && images.length > 0;
   const isMulti   = hasImages && images!.length > 1;
 
-  // Prepended only when multiple images are supplied
   const multiHeader = isMulti
     ? (language === "zh"
         ? "注意：以下提供了多张图片，它们是同一编织图解的连续部分。请按顺序分析所有图片，合并信息，生成一份连贯的、不重复的完整步骤清单。\n\n"
@@ -136,46 +137,67 @@ async function runGemini(
       ]
     : prompt;
 
-  try {
-    const result = await model.generateContent(contents);
-    const raw = result.response.text().trim();
-    const jsonStart = raw.indexOf("{");
-    const jsonEnd = raw.lastIndexOf("}");
-    const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
-    return flattenSteps(parsed.steps ?? []);
-  } catch (error: any) {
-    const httpStatus = error.status ?? error.response?.status ?? "unknown";
-    const errMessage = error.message ?? "";
-    const errDetails = error.errorDetails ?? error.response?.data ?? null;
-    const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? "").toLowerCase();
+  console.time("AI_CONVERSION");
+  let lastError: any = null;
 
-    const violations = (errDetails ?? []).flatMap((d: any) => d.violations ?? []);
-    const isDailyQuota = violations.some((v: any) =>
-      (v.quotaId ?? "").toLowerCase().includes("perday"),
-    );
+  for (let i = 0; i < MODELS_TO_TRY.length; i++) {
+    const modelName = MODELS_TO_TRY[i];
+    console.log(`[AI] Attempt ${i + 1}/${MODELS_TO_TRY.length} — model: ${modelName}`);
 
-    const retryInfo = (errDetails ?? []).find((d: any) =>
-      (d["@type"] ?? "").includes("RetryInfo"),
-    );
-    const apiDelaySec = retryInfo?.retryDelay ? parseInt(retryInfo.retryDelay) : null;
+    const model = genAI.getGenerativeModel({ model: modelName });
 
-    const isPayloadTooLarge =
-      httpStatus === 413 ||
-      msgLower.includes("payload size") ||
-      msgLower.includes("too large") ||
-      msgLower.includes("exceeds the limit") ||
-      msgLower.includes("request entity too large");
-    if (isPayloadTooLarge) throw new Error("FILE_TOO_LARGE");
+    try {
+      const result = await model.generateContent(contents);
+      const raw = result.response.text().trim();
 
-    const is429 = httpStatus === 429 || errMessage.includes("429");
-    if (is429 && !isDailyQuota && retryCount < 3) {
-      const wait = apiDelaySec != null ? apiDelaySec * 1000 : Math.pow(2, retryCount + 1) * 1000;
-      await sleep(wait);
-      return runGemini(text, language, retryCount + 1, images);
+      console.log(`[AI] Raw response snippet (${modelName}): ${raw.slice(0, 100)}`);
+
+      const jsonStart = raw.indexOf("{");
+      const jsonEnd = raw.lastIndexOf("}");
+      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+
+      console.timeEnd("AI_CONVERSION");
+      return flattenSteps(parsed.steps ?? []);
+
+    } catch (error: any) {
+      lastError = error;
+      const httpStatus = error.status ?? error.response?.status ?? "unknown";
+      const errMessage = error.message ?? "";
+      const errDetails = error.errorDetails ?? error.response?.data ?? null;
+      const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? "").toLowerCase();
+
+      const isPayloadTooLarge =
+        httpStatus === 413 ||
+        msgLower.includes("payload size") ||
+        msgLower.includes("too large") ||
+        msgLower.includes("exceeds the limit") ||
+        msgLower.includes("request entity too large");
+      if (isPayloadTooLarge) {
+        console.timeEnd("AI_CONVERSION");
+        throw new Error("FILE_TOO_LARGE");
+      }
+
+      const is429 = httpStatus === 429 || errMessage.includes("429");
+      const is404 = httpStatus === 404 || errMessage.includes("404");
+
+      if (is429) {
+        console.warn(`[AI] ${modelName} → 429 Rate Limit. Moving to next model.`);
+        continue;
+      }
+      if (is404) {
+        console.warn(`[AI] ${modelName} → 404 Not Found. Moving to next model.`);
+        continue;
+      }
+
+      console.warn(`[AI] ${modelName} → unexpected error (${httpStatus}): ${errMessage}. Trying next model.`);
     }
-
-    throw new Error(is429 ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
   }
+
+  console.timeEnd("AI_CONVERSION");
+  const lastMsg = lastError?.message ?? "All models failed";
+  const lastStatus = lastError?.status ?? lastError?.response?.status;
+  const wasRateLimit = lastStatus === 429 || lastMsg.includes("429");
+  throw new Error(wasRateLimit ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
 }
 
 export async function POST(request: NextRequest) {
@@ -202,7 +224,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
     }
 
-    const steps = await runGemini(text, language, 0, images);
+    const steps = await runGemini(text, language, images);
     return NextResponse.json({ steps });
   } catch (err: any) {
     const msg = err?.message ?? "UNKNOWN_ERROR";
