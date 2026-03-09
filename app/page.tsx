@@ -28,7 +28,8 @@ interface Project {
   steps: Step[];
   rowCount: number;
   lastUpdated: number;
-  originalFile?: Blob | File;
+  originalFile?: Blob | File;         // legacy field — kept for migration read
+  originalFiles?: (Blob | File)[];    // v2 — all uploaded files
   availableSizes: string[];
   selectedSize: string;
 }
@@ -294,8 +295,9 @@ export default function Home() {
   const [codeError, setCodeError]                   = useState(false);
   const [showReferencePanel, setShowReferencePanel]     = useState(false);
   const [highlightedStepId, setHighlightedStepId]       = useState<number | null>(null);
-  const [currentProjectFile, setCurrentProjectFile]     = useState<{ url: string; mimeType: string } | null>(null);
-  const currentProjectFileUrlRef = useRef<string | null>(null);
+  const [currentProjectFiles, setCurrentProjectFiles]   = useState<{ url: string; mimeType: string }[]>([]);
+  const [currentFileIndex, setCurrentFileIndex]         = useState(0);
+  const currentProjectFileUrlsRef = useRef<string[]>([]);
   const [hasClickedTarget, setHasClickedTarget]         = useState(false);
   const [dragIndex, setDragIndex]                   = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex]           = useState<number | null>(null);
@@ -333,8 +335,8 @@ export default function Home() {
 
   // Guards against saving before hydration completes (avoids overwriting restored data)
   const hydrated = useRef(false);
-  // Holds the most-recently uploaded File so it can be persisted in IndexedDB
-  const latestFileRef = useRef<File | undefined>(undefined);
+  // Holds all uploaded original Files (accumulates per session) so they can be persisted in IndexedDB
+  const latestFilesRef = useRef<File[]>([]);
   // Ref for the checklist top anchor (used by floating nav "list top" button)
   const checklistTopRef = useRef<HTMLDivElement>(null);
 
@@ -468,31 +470,43 @@ export default function Home() {
       .catch((err) => console.error("[KnitStep] Failed to persist selectedSize:", err));
   }, [selectedSize, currentProjectId]);
 
-  // ── Load per-project originalFile and create a blob URL for the reference panel ──
+  // ── Load per-project files and create blob URLs for the reference panel ──
   useEffect(() => {
-    // Always clear state so the panel never shows a stale file
-    setCurrentProjectFile(null);
+    // Always clear state so the panel never shows stale files
+    setCurrentProjectFiles([]);
+    setCurrentFileIndex(0);
     setHasClickedTarget(false);
 
     let cancelled = false;
 
     if (currentProjectId) {
       db.projects.get(currentProjectId).then((proj) => {
-        if (cancelled || !proj?.originalFile) return;
-        const mimeType = proj.originalFile.type || "application/octet-stream";
-        const url = URL.createObjectURL(proj.originalFile);
-        currentProjectFileUrlRef.current = url;
-        setCurrentProjectFile({ url, mimeType });
-      }).catch((err) => console.error("[KnitStep] Failed to load project file:", err));
+        if (cancelled || !proj) return;
+
+        // Determine the file list — migrate legacy single-file projects
+        const files: (Blob | File)[] =
+          proj.originalFiles && proj.originalFiles.length > 0
+            ? proj.originalFiles
+            : proj.originalFile
+              ? [proj.originalFile]
+              : [];
+
+        if (files.length === 0) return;
+
+        const entries = files.map((f) => ({
+          url:      URL.createObjectURL(f),
+          mimeType: f.type || "application/octet-stream",
+        }));
+        currentProjectFileUrlsRef.current = entries.map((e) => e.url);
+        setCurrentProjectFiles(entries);
+      }).catch((err) => console.error("[KnitStep] Failed to load project files:", err));
     }
 
     return () => {
       cancelled = true;
-      // Revoke the blob URL that was created for the previous project
-      if (currentProjectFileUrlRef.current) {
-        URL.revokeObjectURL(currentProjectFileUrlRef.current);
-        currentProjectFileUrlRef.current = null;
-      }
+      // Revoke all blob URLs created for the previous project
+      currentProjectFileUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      currentProjectFileUrlsRef.current = [];
     };
   }, [currentProjectId]);
 
@@ -516,10 +530,9 @@ export default function Home() {
     }
     setErrorMsg(null);
 
-    // Capture original file for IndexedDB storage; replace on every new upload
-    latestFileRef.current = file;
-
     if (file.type.startsWith("image/")) {
+      // Accumulate originals for IndexedDB storage
+      latestFilesRef.current = [...latestFilesRef.current, file];
       // currentCount lets batch callers pass the pre-loop count to avoid stale closure
       if ((currentCount ?? uploadedImages.length) >= MAX_IMAGES) {
         setErrorMsg(t.errorMaxImages);
@@ -544,6 +557,7 @@ export default function Home() {
       }
     } else {
       // PDF — replace the entire list (PDFs are always single-file)
+      latestFilesRef.current = [file];
       const reader = new FileReader();
       reader.onload = (e) => {
         const dataUrl = e.target?.result as string;
@@ -566,6 +580,7 @@ export default function Home() {
     setCurrentProjectId(null);
     setSteps([]);
     setHasConverted(false);
+    latestFilesRef.current = uploadedImages.length > 0 ? latestFilesRef.current : [];
 
     try {
       // ── Step 1: Fetch from Gemini; text tab falls back to regex on AI failure ──
@@ -623,7 +638,7 @@ export default function Home() {
           steps:          parsed,
           rowCount:       parsed.filter((s) => !s.isHeader).length,
           lastUpdated:    now,
-          originalFile:   latestFileRef.current,
+          originalFiles:  latestFilesRef.current.length > 0 ? [...latestFilesRef.current] : undefined,
           availableSizes: getAvailableSizes(parsed),
           selectedSize:   "all",
         };
@@ -859,7 +874,7 @@ export default function Home() {
   // Floating nav helpers
   const firstUncheckedIdx = steps.findIndex((s) => !s.isHeader && !s.checked);
   const isDeepInList      = firstUncheckedIdx > 4;
-  const isPdf             = currentProjectFile?.mimeType === "application/pdf";
+  const isPdf             = currentProjectFiles[currentFileIndex]?.mimeType === "application/pdf";
   const isDisabled = (
     activeTab === "text" ? inputText.trim().length === 0 :
     aiSubTab === "video" ? !videoUrl.trim() :
@@ -1172,7 +1187,7 @@ export default function Home() {
                     return (
                       <button
                         key={sub}
-                        onClick={() => { setAiSubTab(sub); setUploadedImages([]); setVideoUrl(""); setErrorMsg(null); }}
+                        onClick={() => { setAiSubTab(sub); setUploadedImages([]); latestFilesRef.current = []; setVideoUrl(""); setErrorMsg(null); }}
                         className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
                         style={{
                           background: active ? "var(--morandi-sage)" : "var(--bg-card)",
@@ -1281,7 +1296,7 @@ export default function Home() {
                         </p>
                       </div>
                       <button
-                        onClick={() => setUploadedImages([])}
+                        onClick={() => { setUploadedImages([]); latestFilesRef.current = []; }}
                         className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold"
                         style={{ background: "rgba(0,0,0,0.45)", color: "#fff", border: "none", cursor: "pointer", lineHeight: 0 }}
                       >
@@ -1303,7 +1318,7 @@ export default function Home() {
                           {uploadedImages.length} / {MAX_IMAGES} {lang === "zh" ? "张图片" : "images"}
                         </span>
                         <button
-                          onClick={() => setUploadedImages([])}
+                          onClick={() => { setUploadedImages([]); latestFilesRef.current = []; }}
                           className="text-xs font-medium"
                           style={{ color: "var(--morandi-blush)", background: "none", border: "none", cursor: "pointer" }}
                         >
@@ -1328,6 +1343,11 @@ export default function Home() {
                                 next.splice(i, 0, moved);
                                 return next;
                               });
+                              // Keep latestFilesRef in sync with the new display order
+                              const reordered = [...latestFilesRef.current];
+                              const [movedFile] = reordered.splice(dragIndex, 1);
+                              reordered.splice(i, 0, movedFile);
+                              latestFilesRef.current = reordered;
                               setDragIndex(null); setDragOverIndex(null);
                             }}
                             onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
@@ -1919,21 +1939,21 @@ export default function Home() {
                 style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
               >
                 {lang === "zh"
-                  ? (currentProjectFile ? "查看原图" : "无附件")
-                  : (currentProjectFile ? "View Pattern" : "No file")}
+                  ? (currentProjectFiles.length > 0 ? `查看原图${currentProjectFiles.length > 1 ? ` (${currentProjectFiles.length}张)` : ""}` : "无附件")
+                  : (currentProjectFiles.length > 0 ? `View Pattern${currentProjectFiles.length > 1 ? ` (${currentProjectFiles.length})` : ""}` : "No file")}
               </span>
               <div style={{ position: "relative" }}>
                 <motion.button
-                  whileHover={{ scale: currentProjectFile ? 1.1 : 1, y: currentProjectFile ? -1 : 0 }}
+                  whileHover={{ scale: currentProjectFiles.length > 0 ? 1.1 : 1, y: currentProjectFiles.length > 0 ? -1 : 0 }}
                   whileTap={{ scale: 0.92 }}
-                  onClick={() => setShowReferencePanel(true)}
+                  onClick={() => { setCurrentFileIndex(0); setShowReferencePanel(true); }}
                   aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
                   style={{
                     width: "44px", height: "44px", borderRadius: "999px",
-                    background: currentProjectFile ? "rgba(168,191,160,0.88)" : "rgba(168,191,160,0.42)",
+                    background: currentProjectFiles.length > 0 ? "rgba(168,191,160,0.88)" : "rgba(168,191,160,0.42)",
                     backdropFilter: "blur(8px)",
                     border: "1px solid rgba(255,255,255,0.35)",
-                    boxShadow: currentProjectFile ? "0 4px 16px -4px rgba(120,155,115,0.4)" : "none",
+                    boxShadow: currentProjectFiles.length > 0 ? "0 4px 16px -4px rgba(120,155,115,0.4)" : "none",
                     color: "#fff", cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "background 0.3s, box-shadow 0.3s",
@@ -2094,9 +2114,23 @@ export default function Home() {
               className="flex items-center justify-between px-5 py-4 shrink-0"
               style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}
             >
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: "14px", letterSpacing: "0.04em" }}>
-                {lang === "zh" ? "原始图解" : "Original Pattern"}
-              </span>
+              <div className="flex items-center gap-3">
+                <span style={{ color: "#fff", fontWeight: 700, fontSize: "14px", letterSpacing: "0.04em" }}>
+                  {lang === "zh" ? "原始图解" : "Original Pattern"}
+                </span>
+                {/* Page counter — only shown for multi-file projects */}
+                {currentProjectFiles.length > 1 && (
+                  <span style={{
+                    background: "rgba(255,255,255,0.15)", color: "#fff",
+                    fontSize: "12px", fontWeight: 600, padding: "2px 10px",
+                    borderRadius: "999px", letterSpacing: "0.03em",
+                  }}>
+                    {lang === "zh"
+                      ? `第 ${currentFileIndex + 1} / ${currentProjectFiles.length} 页`
+                      : `${currentFileIndex + 1} / ${currentProjectFiles.length}`}
+                  </span>
+                )}
+              </div>
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.92 }}
@@ -2113,30 +2147,99 @@ export default function Home() {
             </div>
 
             {/* File content */}
-            {currentProjectFile ? (
-              currentProjectFile.mimeType === "application/pdf" ? (
+            {currentProjectFiles.length > 0 ? (() => {
+              const file = currentProjectFiles[currentFileIndex];
+              return file.mimeType === "application/pdf" ? (
                 /* ── PDF viewer ── */
                 <iframe
-                  src={currentProjectFile.url}
+                  src={file.url}
                   title="Original Pattern"
                   style={{ flex: 1, width: "100%", border: "none", display: "block" }}
                 />
               ) : (
-                /* ── Image viewer ── */
-                <div className="flex-1 overflow-y-auto px-4 py-5">
-                  <img
-                    src={currentProjectFile.url}
-                    alt="Original Pattern"
-                    style={{
-                      width: "100%",
-                      borderRadius: "1rem",
-                      display: "block",
-                      boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
-                    }}
-                  />
+                /* ── Image carousel ── */
+                <div className="flex-1 overflow-y-auto px-4 py-5 relative">
+                  <AnimatePresence mode="wait">
+                    <motion.img
+                      key={file.url}
+                      src={file.url}
+                      alt={`Pattern page ${currentFileIndex + 1}`}
+                      initial={{ opacity: 0, x: 30 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -30 }}
+                      transition={{ duration: 0.18 }}
+                      style={{
+                        width: "100%",
+                        borderRadius: "1rem",
+                        display: "block",
+                        boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
+                      }}
+                    />
+                  </AnimatePresence>
+
+                  {/* Prev / Next navigation */}
+                  {currentProjectFiles.length > 1 && (
+                    <div
+                      className="flex items-center justify-between"
+                      style={{ marginTop: "16px" }}
+                    >
+                      <motion.button
+                        whileHover={{ scale: currentFileIndex > 0 ? 1.08 : 1 }}
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => setCurrentFileIndex((i) => Math.max(0, i - 1))}
+                        disabled={currentFileIndex === 0}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "6px",
+                          background: currentFileIndex > 0 ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.05)",
+                          border: "none", borderRadius: "999px", padding: "8px 18px",
+                          color: currentFileIndex > 0 ? "#fff" : "rgba(255,255,255,0.25)",
+                          cursor: currentFileIndex > 0 ? "pointer" : "default",
+                          fontSize: "13px", fontWeight: 600,
+                        }}
+                      >
+                        <ChevronLeft size={15} strokeWidth={2.5} />
+                        {lang === "zh" ? "上一张" : "Prev"}
+                      </motion.button>
+
+                      {/* Dot indicators */}
+                      <div className="flex gap-1.5">
+                        {currentProjectFiles.map((_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setCurrentFileIndex(i)}
+                            style={{
+                              width: i === currentFileIndex ? "18px" : "7px",
+                              height: "7px", borderRadius: "999px", border: "none", cursor: "pointer",
+                              background: i === currentFileIndex ? "#fff" : "rgba(255,255,255,0.3)",
+                              transition: "all 0.25s ease",
+                              padding: 0,
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      <motion.button
+                        whileHover={{ scale: currentFileIndex < currentProjectFiles.length - 1 ? 1.08 : 1 }}
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => setCurrentFileIndex((i) => Math.min(currentProjectFiles.length - 1, i + 1))}
+                        disabled={currentFileIndex === currentProjectFiles.length - 1}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "6px",
+                          background: currentFileIndex < currentProjectFiles.length - 1 ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.05)",
+                          border: "none", borderRadius: "999px", padding: "8px 18px",
+                          color: currentFileIndex < currentProjectFiles.length - 1 ? "#fff" : "rgba(255,255,255,0.25)",
+                          cursor: currentFileIndex < currentProjectFiles.length - 1 ? "pointer" : "default",
+                          fontSize: "13px", fontWeight: 600,
+                        }}
+                      >
+                        {lang === "zh" ? "下一张" : "Next"}
+                        <ChevronRight size={15} strokeWidth={2.5} />
+                      </motion.button>
+                    </div>
+                  )}
                 </div>
-              )
-            ) : (
+              );
+            })() : (
               /* ── No file attached ── */
               <div className="flex-1 flex flex-col items-center justify-center gap-3">
                 <FileText size={36} strokeWidth={1.2} style={{ color: "rgba(255,255,255,0.25)" }} />
