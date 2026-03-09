@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "./lib/db";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Navigation } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Target } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
 
@@ -293,6 +293,7 @@ export default function Home() {
   const [codeInput, setCodeInput]                   = useState("");
   const [codeError, setCodeError]                   = useState(false);
   const [showReferencePanel, setShowReferencePanel] = useState(false);
+  const [highlightedStepId, setHighlightedStepId]   = useState<number | null>(null);
   const [dragIndex, setDragIndex]                   = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex]           = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex]           = useState<number | null>(null);
@@ -688,10 +689,14 @@ export default function Home() {
   function scrollToFirstUnchecked() {
     const uncheckedIdx = steps.findIndex((s) => !s.isHeader && !s.checked);
     if (uncheckedIdx === -1) return;
-    // Scroll to the step before the first unchecked for visual context
+    const firstUnchecked = steps[uncheckedIdx];
+    // Scroll to the step before for visual context
     const targetIdx = Math.max(0, uncheckedIdx - 1);
     const targetId = steps[targetIdx].id;
     document.getElementById(`step-${targetId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Flash-highlight the actual first unchecked step
+    setHighlightedStepId(firstUnchecked.id);
+    setTimeout(() => setHighlightedStepId(null), 1100);
   }
 
   function addStep(insertAt: number) {
@@ -1705,6 +1710,7 @@ export default function Home() {
                       index={i}
                       isEditMode={isEditMode}
                       selectedSize={selectedSize}
+                      highlighted={highlightedStepId === step.id}
                       onToggle={() => toggleStep(step.id)}
                       onSubCountChange={(delta) => updateSubCount(step.id, delta)}
                       onTextEdit={(text) => handleTextEdit(step.id, text)}
@@ -1786,64 +1792,88 @@ export default function Home() {
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 20, scale: 0.85 }}
             transition={{ type: "spring", stiffness: 380, damping: 22 }}
-            className="no-print fixed bottom-6 right-5 z-40 flex flex-col items-center gap-2"
+            className="no-print fixed bottom-6 right-5 z-40 flex flex-col items-end gap-2"
           >
             {/* Button A: Jump to first unchecked step */}
-            <motion.button
-              whileHover={{ scale: 1.1, y: -1 }}
-              whileTap={{ scale: 0.92 }}
-              onClick={scrollToFirstUnchecked}
-              aria-label="Go to first unchecked step"
-              style={{
-                width: "44px", height: "44px", borderRadius: "999px",
-                background: "rgba(232,168,158,0.88)",
-                backdropFilter: "blur(8px)",
-                border: "1px solid rgba(255,255,255,0.35)",
-                boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
-                color: "#fff", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
-              <Navigation size={18} strokeWidth={2} />
-            </motion.button>
+            <div className="group relative flex items-center">
+              <span
+                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
+              >
+                {lang === "zh" ? "回到当前进度" : "Jump to Current"}
+              </span>
+              <motion.button
+                whileHover={{ scale: 1.1, y: -1 }}
+                whileTap={{ scale: 0.92 }}
+                onClick={scrollToFirstUnchecked}
+                aria-label={lang === "zh" ? "回到当前进度" : "Jump to Current"}
+                style={{
+                  width: "44px", height: "44px", borderRadius: "999px",
+                  background: "rgba(143,175,150,0.90)",
+                  backdropFilter: "blur(8px)",
+                  border: "1px solid rgba(255,255,255,0.35)",
+                  boxShadow: "0 4px 16px -4px rgba(100,145,110,0.45)",
+                  color: "#fff", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <Target size={18} strokeWidth={2} />
+              </motion.button>
+            </div>
 
-            {/* Button B: Scroll to list top (SizePicker) */}
-            <motion.button
-              whileHover={{ scale: 1.1, y: -1 }}
-              whileTap={{ scale: 0.92 }}
-              onClick={scrollToChecklistTop}
-              aria-label="Scroll to list top"
-              style={{
-                width: "44px", height: "44px", borderRadius: "999px",
-                background: "rgba(232,168,158,0.88)",
-                backdropFilter: "blur(8px)",
-                border: "1px solid rgba(255,255,255,0.35)",
-                boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
-                color: "#fff", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
-              <ChevronUp size={19} strokeWidth={2.5} />
-            </motion.button>
+            {/* Button B: Scroll to list top */}
+            <div className="group relative flex items-center">
+              <span
+                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
+              >
+                {lang === "zh" ? "回到顶部" : "List Top"}
+              </span>
+              <motion.button
+                whileHover={{ scale: 1.1, y: -1 }}
+                whileTap={{ scale: 0.92 }}
+                onClick={scrollToChecklistTop}
+                aria-label={lang === "zh" ? "回到顶部" : "List Top"}
+                style={{
+                  width: "44px", height: "44px", borderRadius: "999px",
+                  background: "rgba(232,168,158,0.88)",
+                  backdropFilter: "blur(8px)",
+                  border: "1px solid rgba(255,255,255,0.35)",
+                  boxShadow: "0 4px 16px -4px rgba(180,120,115,0.4)",
+                  color: "#fff", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <ChevronUp size={19} strokeWidth={2.5} />
+              </motion.button>
+            </div>
 
             {/* Button C: Reference Mode */}
-            <motion.button
-              whileHover={{ scale: 1.1, y: -1 }}
-              whileTap={{ scale: 0.92 }}
-              onClick={() => setShowReferencePanel(true)}
-              aria-label="Reference mode"
-              style={{
-                width: "44px", height: "44px", borderRadius: "999px",
-                background: "rgba(168,191,160,0.88)",
-                backdropFilter: "blur(8px)",
-                border: "1px solid rgba(255,255,255,0.35)",
-                boxShadow: "0 4px 16px -4px rgba(120,155,115,0.4)",
-                color: "#fff", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
-              <FileText size={17} strokeWidth={1.8} />
-            </motion.button>
+            <div className="group relative flex items-center">
+              <span
+                className="absolute right-full mr-3 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                style={{ background: "rgba(30,24,20,0.78)", color: "#fff", backdropFilter: "blur(4px)" }}
+              >
+                {lang === "zh" ? "查看原图" : "View Pattern"}
+              </span>
+              <motion.button
+                whileHover={{ scale: 1.1, y: -1 }}
+                whileTap={{ scale: 0.92 }}
+                onClick={() => setShowReferencePanel(true)}
+                aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
+                style={{
+                  width: "44px", height: "44px", borderRadius: "999px",
+                  background: "rgba(168,191,160,0.88)",
+                  backdropFilter: "blur(8px)",
+                  border: "1px solid rgba(255,255,255,0.35)",
+                  boxShadow: "0 4px 16px -4px rgba(120,155,115,0.4)",
+                  color: "#fff", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <FileText size={17} strokeWidth={1.8} />
+              </motion.button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2292,6 +2322,7 @@ function StepItem({
   isEditMode = false,
   onDelete,
   selectedSize = "all",
+  highlighted = false,
 }: {
   step: Step;
   index: number;
@@ -2301,6 +2332,7 @@ function StepItem({
   isEditMode?: boolean;
   onDelete?: () => void;
   selectedSize?: string;
+  highlighted?: boolean;
 }) {
   const [editing, setEditing]   = useState(false);
   const [editText, setEditText] = useState(step.text);
@@ -2391,6 +2423,7 @@ function StepItem({
       className={`print-step flex items-start gap-3 px-4 py-2.5 select-none ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
       data-checked={step.checked}
       style={{
+        position:     "relative",
         background:   editing
           ? "rgba(239,246,255,0.7)"
           : step.checked ? "var(--bg)" : "var(--bg-card)",
@@ -2400,8 +2433,28 @@ function StepItem({
         borderRadius: "1.25rem",
         boxShadow:    editing || step.checked ? "none" : "0 3px 12px -6px rgba(0,0,0,0.08)",
         transition:   "background 0.2s, border-color 0.2s, box-shadow 0.2s",
+        overflow:     "hidden",
       }}
     >
+      {/* Highlight flash overlay */}
+      <AnimatePresence>
+        {highlighted && (
+          <motion.div
+            key="highlight-flash"
+            initial={{ opacity: 0.45 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.9, ease: "easeOut" }}
+            style={{
+              position: "absolute", inset: 0,
+              background: "var(--morandi-green)",
+              borderRadius: "inherit",
+              pointerEvents: "none",
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Checkbox icon */}
       <motion.span
         animate={step.checked ? { scale: [1, 1.3, 1] } : { scale: 1 }}
