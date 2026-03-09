@@ -272,7 +272,7 @@ export default function Home() {
   const [inputText, setInputText]       = useState<string>("");
   const [steps, setSteps]               = useState<Step[]>([]);
   const [hasConverted, setHasConverted] = useState(false);
-  const [activeTab, setActiveTab]       = useState<"text" | "ai">("text");
+  const [activeTab, setActiveTab]       = useState<"text" | "ai">("ai");
   const [isLoading, setIsLoading]       = useState(false);
   const [errorMsg, setErrorMsg]         = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<{
