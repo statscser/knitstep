@@ -10,12 +10,14 @@ let inFlight = false;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+type FlatStep = { text: string; original?: string; sizeMap?: Record<string, string> };
+
 // ── flattenSteps ──────────────────────────────────────────────────────────────
 // Recursively collapses any nested arrays or sub-step objects that Gemini may
 // produce for complex patterns (short-rows, increases, section headers, etc.)
-// into a single flat array of {text, original?} primitives.
-function flattenSteps(items: any[]): { text: string; original?: string }[] {
-  const result: { text: string; original?: string }[] = [];
+// into a single flat array of {text, original?, sizeMap?} primitives.
+function flattenSteps(items: any[]): FlatStep[] {
+  const result: FlatStep[] = [];
 
   for (const item of items) {
     if (Array.isArray(item)) {
@@ -23,8 +25,15 @@ function flattenSteps(items: any[]): { text: string; original?: string }[] {
       result.push(...flattenSteps(item));
     } else if (item && typeof item === 'object') {
       if (typeof item.text === 'string' && item.text.trim()) {
-        const step: { text: string; original?: string } = { text: item.text.trim() };
+        const step: FlatStep = { text: item.text.trim() };
         if (item.original != null) step.original = String(item.original);
+        if (
+          item.sizeMap &&
+          typeof item.sizeMap === 'object' &&
+          !Array.isArray(item.sizeMap)
+        ) {
+          step.sizeMap = item.sizeMap as Record<string, string>;
+        }
         result.push(step);
       }
       // Recurse into any sub-step collections (all known key variants)
@@ -68,9 +77,17 @@ export async function parsePatternAction(
        5. 引返针法（短行/short rows）请按顺序逐步平铺，每一步作为独立的一行文字，不得嵌套。
        6. 章节标题（如"领口"、"袖子"）单独作为一个步骤，文字前加 "▶ " 前缀，不带行号。
 
+       【智能尺码 — Smart Sizing】：
+       部分图解使用括号标注多尺码，例如"起 80 (90, 100) 针"对应 S (M, L) 码。
+       如果图解包含多尺码：
+       1. 从页眉或说明中识别尺码顺序和标签（例如 "S (M, L)" 或 "36 (38, 40)"）。
+       2. 对每个含括号尺码数字的步骤，添加 "sizeMap" 字段：键为尺码标签，值为该步骤仅替换为该尺码数字的完整文字。
+          示例：text: "起 80 (90, 100) 针", sizeMap: {"S": "起 80 针", "M": "起 90 针", "L": "起 100 针"}
+       3. 无尺码变化的步骤（标题行、无括号数字的步骤）省略 "sizeMap" 字段。
+
        【返回格式 — 极其重要】：
        只返回一个 JSON 对象，其中 steps 是一个【严格扁平的一维数组】。
-       每个元素只允许包含 "text"（字符串）和可选的 "original"（字符串）两个字段。
+       每个元素只允许包含 "text"（字符串）、可选的 "original"（字符串）和可选的 "sizeMap"（对象）。
        绝对禁止：嵌套数组、sub_steps、children、rows 或任何递归结构。
        正确示例：{"steps":[{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
@@ -87,9 +104,17 @@ export async function parsePatternAction(
        5. Section headings (e.g., "Sleeve", "Neckline") become a single step with text prefixed "▶ ", no row number.
        6. ONLY use the ${imageBase64 ? 'image' : 'pattern text below'}. Do NOT invent any steps.
 
+       [SMART SIZING]:
+       Many patterns list stitch counts for multiple sizes in parentheses, e.g., "Cast on 80 (90, 100) sts" for S (M, L).
+       If the pattern contains multi-size variations:
+       1. Identify the size order and labels from the pattern header (e.g., "S (M, L)" or "XS (S, M, L, XL)").
+       2. For each step that contains parenthetical size numbers, add a "sizeMap" field: an object where each key is a size label and the value is the COMPLETE step text rewritten with ONLY that size's numbers substituted.
+          Example: text: "Cast on 80 (90, 100) sts", sizeMap: {"S": "Cast on 80 sts", "M": "Cast on 90 sts", "L": "Cast on 100 sts"}
+       3. For steps with no size variations (headers, steps without parenthetical numbers), omit the "sizeMap" field entirely.
+
        [OUTPUT FORMAT — CRITICAL]:
        Return a single JSON object where "steps" is a STRICTLY FLAT one-dimensional array.
-       Each element may only contain "text" (string) and optionally "original" (string).
+       Each element may only contain "text" (string), optionally "original" (string), and optionally "sizeMap" (object).
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
        Correct example: {"steps":[{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"}]}
        ${imageBase64 ? '' : `\n       Pattern:\n       ${text}`}`;

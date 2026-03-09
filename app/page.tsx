@@ -19,6 +19,7 @@ interface Step {
   isHeader?: boolean;
   count?: number;
   subCount?: number;
+  sizeMap?: Record<string, string>;
 }
 
 interface Project {
@@ -28,6 +29,8 @@ interface Project {
   rowCount: number;
   lastUpdated: number;
   originalFile?: Blob | File;
+  availableSizes: string[];
+  selectedSize: string;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────
@@ -174,6 +177,32 @@ function parseInput(raw: string): Step[] {
     .filter((step) => ROW_KEYWORDS.test(step.text));
 }
 
+// ─── Smart Sizing helpers ────────────────────────────────────────────────────
+
+/** Collect all unique size labels (in first-appearance order) from a step array. */
+function getAvailableSizes(steps: Step[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const step of steps) {
+    if (step.sizeMap) {
+      for (const key of Object.keys(step.sizeMap)) {
+        if (!seen.has(key)) { seen.add(key); result.push(key); }
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Returns the display text for a step.
+ * When a specific size is selected and the step has that size in its sizeMap,
+ * returns the size-specific replacement text; otherwise returns step.text.
+ */
+function renderStepText(step: Step, selectedSize: string): string {
+  if (selectedSize === "all" || !step.sizeMap) return step.text;
+  return step.sizeMap[selectedSize] ?? step.text;
+}
+
 // ─── Image compression ───────────────────────────────────────────────────────
 
 const MAX_DIMENSION = 1280;
@@ -254,6 +283,7 @@ export default function Home() {
   const [mounted, setMounted]             = useState(false);
   const [projects, setProjects]                     = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
+  const [selectedSize, setSelectedSize]             = useState<string>("all");
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
   const [isEditMode, setIsEditMode]                 = useState(false);
   const [showBackToTop, setShowBackToTop]           = useState(false);
@@ -360,7 +390,11 @@ export default function Home() {
 
         // Load all projects sorted newest-first
         const dbProjects = await db.projects.orderBy("lastUpdated").reverse().toArray();
-        const loaded = dbProjects as Project[];
+        const loaded: Project[] = dbProjects.map((p) => ({
+          ...p,
+          availableSizes: p.availableSizes ?? getAvailableSizes(p.steps),
+          selectedSize:   p.selectedSize   ?? "all",
+        }));
         setProjects(loaded);
 
         // Restore the active project id so the sync effect keeps saving after refresh
@@ -417,6 +451,15 @@ export default function Home() {
       .catch((err) => console.error("[KnitStep] Failed to sync project:", err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [steps, currentProjectId]);
+
+  // ── Persist selectedSize preference for the active project ──
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (!currentProjectId) return;
+    db.projects
+      .update(currentProjectId, { selectedSize })
+      .catch((err) => console.error("[KnitStep] Failed to persist selectedSize:", err));
+  }, [selectedSize, currentProjectId]);
 
   function toggleLang() {
     const next: Lang = lang === "zh" ? "en" : "zh";
@@ -482,41 +525,56 @@ export default function Home() {
     setErrorMsg(null);
     setRateLimitSecondsLeft(null);
 
-    // ⚠️ 关键修复：在开始转换前，彻底清空旧的步骤和状态
-    // 先清除 currentProjectId，防止 sync effect 把旧项目覆盖为空步骤
+    // Clear old state before starting; nulling currentProjectId prevents the sync
+    // effect from overwriting the active project with empty steps mid-conversion.
     setIsEditMode(false);
     setCurrentProjectId(null);
     setSteps([]);
     setHasConverted(false);
 
     try {
-      let res: Response;
-      if (activeTab === "ai" && aiSubTab === "video") {
-        res = await fetch("/api/parse-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoUrl: videoUrl.trim(), language: lang, accessCode: ACCESS_CODE }),
-        });
-      } else {
-        const body = activeTab === "ai" && uploadedImages.length > 0
-          ? { text: "", language: lang, images: uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType })), accessCode: ACCESS_CODE }
-          : { text: inputText, language: lang, accessCode: ACCESS_CODE };
-        res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      // ── Step 1: Fetch from Gemini; text tab falls back to regex on AI failure ──
+      let parsed: Step[];
+      try {
+        let res: Response;
+        if (activeTab === "ai" && aiSubTab === "video") {
+          res = await fetch("/api/parse-video", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ videoUrl: videoUrl.trim(), language: lang, accessCode: ACCESS_CODE }),
+          });
+        } else {
+          const body = activeTab === "ai" && uploadedImages.length > 0
+            ? { text: "", language: lang, images: uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType })), accessCode: ACCESS_CODE }
+            : { text: inputText, language: lang, accessCode: ACCESS_CODE };
+          res = await fetch("/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
+
+        // ── sizeMap is preserved here so Smart Sizing works for all input types ──
+        const rawSteps: { text: string; original?: string; isHeader?: boolean; sizeMap?: Record<string, string> }[] = data.steps;
+        const base = Date.now();
+        parsed = rawSteps.map((s, idx) => ({
+          id:       base + idx,
+          text:     s.text,
+          original: s.original,
+          checked:  false,
+          isHeader: s.isHeader,
+          sizeMap:  s.sizeMap,
+        }));
+      } catch (aiErr: any) {
+        // AI / video tabs: re-throw so the outer catch shows the right error message
+        if (activeTab !== "text") throw aiErr;
+        // Text tab: silently fall back to the original line-by-line regex parser
+        const base = Date.now();
+        parsed = parseInput(inputText).map((s, i) => ({ ...s, id: base + i }));
       }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
-      const rawSteps: { text: string; original?: string; isHeader?: boolean }[] = data.steps;
-      const parsed: Step[] = rawSteps.map((s, idx) => ({
-        id:       Date.now() + idx,
-        text:     s.text,
-        original: s.original,
-        checked:  false,
-        isHeader: s.isHeader,
-      }));
+
+      // ── Step 2: Commit parsed steps to state & persist project ──
       setSteps(parsed);
       setHasConverted(true);
 
-      // Auto-save as a new project (only when there are actual steps)
       if (parsed.filter((s) => !s.isHeader).length > 0) {
         const now = Date.now();
         const d   = new Date(now);
@@ -525,14 +583,16 @@ export default function Home() {
             ? `${d.getMonth() + 1}月${d.getDate()}日 项目`
             : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Project`;
         const newProject: Project = {
-          id:           now.toString(),
-          name:         projectName,
-          steps:        parsed,
-          rowCount:     parsed.filter((s) => !s.isHeader).length,
-          lastUpdated:  now,
-          originalFile: latestFileRef.current,
+          id:             now.toString(),
+          name:           projectName,
+          steps:          parsed,
+          rowCount:       parsed.filter((s) => !s.isHeader).length,
+          lastUpdated:    now,
+          originalFile:   latestFileRef.current,
+          availableSizes: getAvailableSizes(parsed),
+          selectedSize:   "all",
         };
-        // Persist to IndexedDB; then add to in-memory state
+        setSelectedSize("all");
         try {
           await db.projects.put(newProject);
         } catch (dbErr) {
@@ -559,6 +619,7 @@ export default function Home() {
     if (confirm(lang === "zh" ? "确定要清除所有进度并重新开始吗？" : "Clear all progress and restart?")) {
       setIsEditMode(false);
       setCurrentProjectId(null);
+      setSelectedSize("all");
       setSteps([]);
       setHasConverted(false);
       setInputText("");
@@ -637,6 +698,7 @@ export default function Home() {
     setSteps(project.steps);
     setHasConverted(true);
     setCurrentProjectId(id);
+    setSelectedSize(project.selectedSize ?? "all");
     setShowProjectsModal(false);
   }
 
@@ -1579,6 +1641,14 @@ export default function Home() {
               </AnimatePresence>
             ) : (
               <>
+                {/* ── Size Picker — only shown when pattern has multi-size data ── */}
+                <SizePicker
+                  sizes={getAvailableSizes(steps)}
+                  selected={selectedSize}
+                  lang={lang}
+                  onChange={setSelectedSize}
+                />
+
                 {/* ── Edit tip ── */}
                 <AnimatePresence>
                   {tipVisible && (
@@ -1615,6 +1685,7 @@ export default function Home() {
                       step={step}
                       index={i}
                       isEditMode={isEditMode}
+                      selectedSize={selectedSize}
                       onToggle={() => toggleStep(step.id)}
                       onSubCountChange={(delta) => updateSubCount(step.id, delta)}
                       onTextEdit={(text) => handleTextEdit(step.id, text)}
@@ -2097,6 +2168,7 @@ function StepItem({
   onTextEdit,
   isEditMode = false,
   onDelete,
+  selectedSize = "all",
 }: {
   step: Step;
   index: number;
@@ -2105,6 +2177,7 @@ function StepItem({
   onTextEdit: (newText: string) => void;
   isEditMode?: boolean;
   onDelete?: () => void;
+  selectedSize?: string;
 }) {
   const [editing, setEditing]   = useState(false);
   const [editText, setEditText] = useState(step.text);
@@ -2260,7 +2333,7 @@ function StepItem({
                 display:        "block",
               }}
             >
-              {step.text}
+              {renderStepText(step, selectedSize)}
             </span>
           )}
 
@@ -2405,6 +2478,52 @@ function StepInsertDividerLi({ onAdd }: { onAdd: () => void }) {
       </motion.span>
       <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
     </motion.li>
+  );
+}
+
+// ─── SizePicker ───────────────────────────────────────────────────────────────
+
+function SizePicker({
+  sizes,
+  selected,
+  lang,
+  onChange,
+}: {
+  sizes: string[];
+  selected: string;
+  lang: Lang;
+  onChange: (size: string) => void;
+}) {
+  if (sizes.length === 0) return null;
+  const allLabel = lang === "zh" ? "全部" : "All";
+  return (
+    <div
+      className="no-print flex items-center gap-2 mb-4 overflow-x-auto"
+      style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+    >
+      {(["all", ...sizes] as string[]).map((size) => {
+        const active = selected === size;
+        return (
+          <motion.button
+            key={size}
+            onClick={() => onChange(size)}
+            whileTap={{ scale: 0.92 }}
+            className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full"
+            style={{
+              background:   active ? "var(--morandi-pink)" : "var(--bg)",
+              color:        active ? "#fff" : "var(--text-muted)",
+              border:       active ? "1px solid var(--morandi-pink)" : "1px solid var(--border)",
+              cursor:       "pointer",
+              transition:   "background 0.2s, color 0.2s, border-color 0.2s",
+              minHeight:    "32px",
+              whiteSpace:   "nowrap",
+            }}
+          >
+            {size === "all" ? allLabel : size}
+          </motion.button>
+        );
+      })}
+    </div>
   );
 }
 

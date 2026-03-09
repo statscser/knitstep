@@ -7,7 +7,12 @@ const MODEL_NAME = "gemini-2.5-flash";
 let inFlight = false;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-type ParsedStep = { text: string; original?: string; isHeader?: boolean };
+type ParsedStep = {
+  text: string;
+  original?: string;
+  isHeader?: boolean;
+  sizeMap?: Record<string, string>;
+};
 
 function flattenSteps(items: any[]): ParsedStep[] {
   const result: ParsedStep[] = [];
@@ -19,6 +24,13 @@ function flattenSteps(items: any[]): ParsedStep[] {
         const step: ParsedStep = { text: item.text.trim() };
         if (item.original != null) step.original = String(item.original);
         if (item.isHeader === true) step.isHeader = true;
+        if (
+          item.sizeMap &&
+          typeof item.sizeMap === "object" &&
+          !Array.isArray(item.sizeMap)
+        ) {
+          step.sizeMap = item.sizeMap as Record<string, string>;
+        }
         result.push(step);
       }
       const subKeys = ["steps", "sub_steps", "subSteps", "substeps", "children", "instructions", "rows"];
@@ -56,7 +68,8 @@ async function runGemini(
       ? `你是一位专业的编织翻译专家。请${hasImages ? "分析这张编织图解图片，提取所有步骤并" : "将以下英文图解"}转换为中文步骤清单。
 
        【内容过滤】：
-       自动跳过以下说明性内容，不要将其转为步骤：尺寸 (Size)、材料/用线 (Materials/Yarn)、工具/建议用针 (Tools/Needles)、密度 (Gauge/Tension)。
+       自动跳过以下说明性内容，不要将其转为步骤：材料/用线 (Materials/Yarn)、工具/建议用针 (Tools/Needles)、密度 (Gauge/Tension)。
+       例外：保留尺码声明行（如"适用尺码：S、M、L"或"Sizes: XS (S, M, L)"），用于智能尺码识别，但不将其输出为步骤。
        只保留与实际编织操作相关的内容。
 
        【核心准则】：
@@ -67,9 +80,17 @@ async function runGemini(
        5. 引返针法（短行/short rows）请按顺序逐步平铺，每一步作为独立的一行文字，不得嵌套。
        6. 章节标题（如"后片"、"袖子"、"领口"等逻辑分段）：单独作为一个步骤，设置 "isHeader": true，text 字段填写标题文字（不加任何前缀），不带行号。
 
+       【智能尺码 — Smart Sizing】：
+       部分图解使用括号标注多尺码，例如"起 80 (90, 100) 针"对应 S (M, L) 码。
+       如果图解包含多尺码：
+       1. 从页眉或说明中识别尺码顺序和标签（例如 "S (M, L)" 或 "36 (38, 40)"）。
+       2. 对每个含括号尺码数字的步骤，添加 "sizeMap" 字段：键为尺码标签，值为该步骤仅替换为该尺码数字的完整文字。
+          示例：text: "起 80 (90, 100) 针", sizeMap: {"S": "起 80 针", "M": "起 90 针", "L": "起 100 针"}
+       3. 无尺码变化的步骤（标题行、无括号数字的步骤）省略 "sizeMap" 字段。
+
        【返回格式 — 极其重要】：
        只返回一个 JSON 对象，其中 steps 是一个【严格扁平的一维数组】，所有步骤和标题行处于同一层级，严禁嵌套。
-       普通步骤字段："text"（字符串）、可选的 "original"（字符串）。
+       普通步骤字段："text"（字符串）、可选的 "original"（字符串）、可选的 "sizeMap"（对象）。
        标题行字段："text"（字符串）、"isHeader": true。
        绝对禁止：嵌套数组、sub_steps、children、rows 或任何递归结构。
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
@@ -80,7 +101,8 @@ async function runGemini(
        ${hasImages ? "Analyze the knitting pattern image(s) and extract all instructions" : "Parse the following knitting pattern text"} into clear, actionable checklist steps.
 
        [CONTENT FILTERING]:
-       Skip all non-instruction content: Size, Materials/Yarn, Tools/Needles, Gauge/Tension sections.
+       Skip non-instruction metadata: Materials/Yarn, Tools/Needles, Gauge/Tension sections.
+       EXCEPTION: Keep any line that declares available sizes (e.g., "For sizes S, M, L" or "Size: XS (S, M, L)") — it is needed for Smart Sizing detection even though it is not a knitting step; use it to identify size labels, then omit it from the output steps.
        Only include content related to actual knitting operations.
 
        [RULES]:
@@ -91,9 +113,17 @@ async function runGemini(
        5. Section headings (e.g., "Back", "Sleeve", "Neckline", "Body") that mark a logical new phase: output as a single step with "isHeader": true. Put the heading text in the "text" field with no prefix or decoration.
        6. ONLY use the ${hasImages ? "image(s)" : "pattern text below"}. Do NOT invent any steps.
 
+       [SMART SIZING]:
+       Many patterns list stitch counts for multiple sizes in parentheses, e.g., "Cast on 80 (90, 100) sts" for S (M, L).
+       If the pattern contains multi-size variations:
+       1. Identify the size order and labels from the pattern header (e.g., "S (M, L)" or "XS (S, M, L, XL)").
+       2. For each step that contains parenthetical size numbers, add a "sizeMap" field: an object where each key is a size label and the value is the COMPLETE step text rewritten with ONLY that size's numbers substituted.
+          Example: text: "Cast on 80 (90, 100) sts", sizeMap: {"S": "Cast on 80 sts", "M": "Cast on 90 sts", "L": "Cast on 100 sts"}
+       3. For steps with no size variations (headers, steps without parenthetical numbers), omit the "sizeMap" field entirely.
+
        [OUTPUT FORMAT — CRITICAL]:
        Return a single JSON object where "steps" is a STRICTLY FLAT one-dimensional array. All steps and headers are at the same level — no nesting.
-       Regular step fields: "text" (string), optional "original" (string).
+       Regular step fields: "text" (string), optional "original" (string), optional "sizeMap" (object).
        Header step fields: "text" (string), "isHeader": true.
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
        Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}

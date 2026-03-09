@@ -7,6 +7,8 @@ export interface DbProject {
   rowCount: number;
   lastUpdated: number;
   originalFile?: Blob | File;
+  selectedSize?: string;       // user's last-chosen size filter for this project
+  availableSizes?: string[];   // cached list of size labels detected in the steps
 }
 
 export class KnitStepDatabase extends Dexie {
