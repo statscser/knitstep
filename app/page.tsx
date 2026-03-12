@@ -296,6 +296,7 @@ export default function Home() {
   const [showReferencePanel, setShowReferencePanel]     = useState(false);
   const [highlightedStepId, setHighlightedStepId]       = useState<number | null>(null);
   const [currentProjectFiles, setCurrentProjectFiles]   = useState<{ url: string; mimeType: string }[]>([]);
+  const [storageWarning, setStorageWarning]             = useState(false);
   const [currentFileIndex, setCurrentFileIndex]         = useState(0);
   const currentProjectFileUrlsRef = useRef<string[]>([]);
   const [hasClickedTarget, setHasClickedTarget]         = useState(false);
@@ -371,6 +372,16 @@ export default function Home() {
 
     if (localStorage.getItem("knitstep_access_granted") === "1") setIsUnlocked(true);
 
+    // ── Capture the saved project ID NOW, before hydrated.current = true ──
+    // The currentProjectId persistence effect runs immediately after the
+    // hydration effect (React executes effects in definition order on first
+    // mount). That effect has no hydration guard, so it fires with
+    // currentProjectId = null and calls localStorage.removeItem(...).
+    // If we read the key inside the async IIFE — which runs AFTER all first-
+    // mount effects have fired — the key is already gone and selectProject
+    // is never called, leaving currentProjectId = null permanently.
+    const savedProjectId = localStorage.getItem("knitstep-current-project");
+
     hydrated.current = true;
     setMounted(true);
 
@@ -406,11 +417,15 @@ export default function Home() {
         }));
         setProjects(loaded);
 
-        // Restore the active project id so the sync effect keeps saving after refresh
-        const savedId = localStorage.getItem("knitstep-current-project");
-        if (savedId && loaded.some((p) => p.id === savedId)) {
-          setCurrentProjectId(savedId);
-        } else if (savedId) {
+        // Restore the full active project. Use savedProjectId captured above
+        // (before hydrated.current = true) — by this point the persistence
+        // effect has already erased the key from localStorage.
+        const activeProject = savedProjectId
+          ? loaded.find((p) => p.id === savedProjectId)
+          : undefined;
+        if (activeProject) {
+          selectProject(activeProject);
+        } else if (savedProjectId) {
           localStorage.removeItem("knitstep-current-project");
         }
       } catch (err) {
@@ -470,44 +485,59 @@ export default function Home() {
       .catch((err) => console.error("[KnitStep] Failed to persist selectedSize:", err));
   }, [selectedSize, currentProjectId]);
 
-  // ── Load per-project files and create blob URLs for the reference panel ──
+  // ── Storage monitoring — warn when total blob data across all projects exceeds 50 MB ──
   useEffect(() => {
-    // Always clear state so the panel never shows stale files
-    setCurrentProjectFiles([]);
+    if (!mounted) return;
+    let totalBytes = 0;
+    for (const p of projects) {
+      for (const f of p.originalFiles ?? []) totalBytes += f.size;
+      if (p.originalFile) totalBytes += (p.originalFile as Blob).size;
+    }
+    setStorageWarning(totalBytes > 50 * 1024 * 1024);
+  }, [projects, mounted]);
+
+  // ── Generate blob URLs for the reference panel whenever the active project changes ──
+  // Uses the already-loaded `projects` state — no extra DB round-trip, so URLs are
+  // ready synchronously in the same render cycle as the currentProjectId change.
+  useEffect(() => {
     setCurrentFileIndex(0);
     setHasClickedTarget(false);
 
-    let cancelled = false;
-
-    if (currentProjectId) {
-      db.projects.get(currentProjectId).then((proj) => {
-        if (cancelled || !proj) return;
-
-        // Determine the file list — migrate legacy single-file projects
-        const files: (Blob | File)[] =
-          proj.originalFiles && proj.originalFiles.length > 0
-            ? proj.originalFiles
-            : proj.originalFile
-              ? [proj.originalFile]
-              : [];
-
-        if (files.length === 0) return;
-
-        const entries = files.map((f) => ({
-          url:      URL.createObjectURL(f),
-          mimeType: f.type || "application/octet-stream",
-        }));
-        currentProjectFileUrlsRef.current = entries.map((e) => e.url);
-        setCurrentProjectFiles(entries);
-      }).catch((err) => console.error("[KnitStep] Failed to load project files:", err));
+    if (!currentProjectId) {
+      setCurrentProjectFiles([]);
+      return;
     }
 
+    // projects is intentionally read from closure (not in deps) — it always holds
+    // the latest value because selectProject sets currentProjectId in the same
+    // React batch as setProjects(loaded), so by the time this effect runs the
+    // projects array is already populated.
+    const proj = projects.find((p) => p.id === currentProjectId);
+    const files: (Blob | File)[] =
+      proj?.originalFiles && proj.originalFiles.length > 0
+        ? proj.originalFiles
+        : proj?.originalFile
+          ? [proj.originalFile]
+          : [];
+
+    if (files.length === 0) {
+      setCurrentProjectFiles([]);
+      return;
+    }
+
+    const entries = files.map((f) => ({
+      url:      URL.createObjectURL(f),
+      mimeType: f.type || "application/octet-stream",
+    }));
+    const urls = entries.map((e) => e.url);
+    currentProjectFileUrlsRef.current = urls;
+    setCurrentProjectFiles(entries);
+
     return () => {
-      cancelled = true;
-      // Revoke all blob URLs created for the previous project
-      currentProjectFileUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      urls.forEach((u) => URL.revokeObjectURL(u));
       currentProjectFileUrlsRef.current = [];
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProjectId]);
 
   function toggleLang() {
@@ -759,13 +789,20 @@ export default function Home() {
   }
 
 
+  // ── Central project-activation helper ──────────────────────────────────────
+  // Single source of truth for switching the active project.  Call this both
+  // on hydration (mount) and when the user picks a project from the modal.
+  function selectProject(project: Project) {
+    setCurrentProjectId(project.id);
+    setSteps(project.steps);
+    setHasConverted(true);
+    setSelectedSize(project.selectedSize ?? "all");
+  }
+
   function handleLoadProject(id: string) {
     const project = projects.find((p) => p.id === id);
     if (!project) return;
-    setSteps(project.steps);
-    setHasConverted(true);
-    setCurrentProjectId(id);
-    setSelectedSize(project.selectedSize ?? "all");
+    selectProject(project);
     setShowProjectsModal(false);
   }
 
@@ -2093,6 +2130,40 @@ export default function Home() {
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Storage warning toast ── */}
+      <AnimatePresence>
+        {storageWarning && (
+          <motion.div
+            key="storage-warning"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+            className="no-print fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium"
+            style={{
+              background: "rgba(180,140,130,0.95)",
+              color: "#fff",
+              boxShadow: "0 4px 20px -4px rgba(140,90,80,0.35)",
+              backdropFilter: "blur(8px)",
+              maxWidth: "min(480px, calc(100vw - 5rem))",
+            }}
+          >
+            <span style={{ flex: 1, lineHeight: 1.45 }}>
+              {lang === "zh"
+                ? "项目图片占用空间较大，建议清理不再需要的项目以释放内存"
+                : "Storage usage is high, consider clearing old projects to free up space"}
+            </span>
+            <button
+              onClick={() => setStorageWarning(false)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", padding: 0, lineHeight: 0, flexShrink: 0 }}
+              aria-label="Dismiss"
+            >
+              <X size={15} strokeWidth={2.5} />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
