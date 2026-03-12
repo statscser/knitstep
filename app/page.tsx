@@ -836,18 +836,25 @@ export default function Home() {
         .replace(/"/g, "&quot;");
     }
 
+    // When a specific size is selected, render each step's size-specific text;
+    // otherwise fall back to step.text (which already contains all sizes).
     const stepsHtml = steps.map((step) => {
       if (step.isHeader) {
         return `<div class="hdr">${esc(step.text)}</div>`;
       }
+      const displayText = esc(renderStepText(step, selectedSize));
       return `<div class="step${step.checked ? " done" : ""}">
         <span class="chk">${step.checked ? "✓" : "○"}</span>
         <div>
-          <div class="txt">${esc(step.text)}</div>
+          <div class="txt">${displayText}</div>
           ${step.original ? `<div class="orig">${esc(step.original)}</div>` : ""}
         </div>
       </div>`;
     }).join("");
+
+    const sizeBadgeHtml = selectedSize !== "all"
+      ? `<div class="size-badge">${lang === "zh" ? "尺码" : "Size"}: <strong>${esc(selectedSize)}</strong></div>`
+      : "";
 
     const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -859,7 +866,9 @@ export default function Home() {
   @page { size: A4; margin: 20mm 15mm; }
   body { font-family: system-ui, -apple-system, sans-serif; color: #111; max-width: 640px; margin: 0 auto; padding: 20px; }
   h1 { text-align: center; font-size: 18pt; margin: 0 0 4pt; }
-  .sub { text-align: center; font-size: 9pt; color: #888; margin: 0 0 16pt; }
+  .sub { text-align: center; font-size: 9pt; color: #888; margin: 0 0 10pt; }
+  .size-badge { text-align: center; font-size: 10pt; color: #5a7a63; background: #eef4ef; border: 1px solid #c2d9c7; border-radius: 20px; display: inline-block; padding: 3px 14px; margin: 0 auto 14pt; }
+  .size-wrap { text-align: center; margin-bottom: 14pt; }
   .hdr { background: #8faf96; color: #fff; font-weight: 700; border-radius: 6px; padding: 6px 12px; margin-bottom: 5px; font-size: 10pt; }
   .step { display: flex; align-items: flex-start; gap: 10px; border: 1px solid #d1d5db; border-radius: 6px; padding: 7px 12px; margin-bottom: 5px; page-break-inside: avoid; }
   .done { background: #f9fafb; border-color: #e5e7eb; }
@@ -873,6 +882,7 @@ export default function Home() {
 <body>
   <h1>${esc(printTitle)}</h1>
   <p class="sub">${esc(t.checklistTitle)}</p>
+  ${sizeBadgeHtml ? `<div class="size-wrap">${sizeBadgeHtml}</div>` : ""}
   ${stepsHtml}
   <div class="footer">
     <span>${esc(t.printFooter)}</span>
