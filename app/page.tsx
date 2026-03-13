@@ -647,16 +647,18 @@ export default function Home() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
 
-        // ── sizeMap is preserved here so Smart Sizing works for all input types ──
-        const rawSteps: { text: string; original?: string; isHeader?: boolean; sizeMap?: Record<string, string> }[] = data.steps;
+        // ── sizeMap / sourceBox preserved here so Smart Sizing & visual grounding work ──
+        const rawSteps: { text: string; original?: string; isHeader?: boolean; sizeMap?: Record<string, string>; sourceBox?: [number, number, number, number]; sourceFileIndex?: number }[] = data.steps;
         const base = Date.now();
         parsed = rawSteps.map((s, idx) => ({
-          id:       base + idx,
-          text:     s.text,
-          original: s.original,
-          checked:  false,
-          isHeader: s.isHeader,
-          sizeMap:  s.sizeMap,
+          id:              base + idx,
+          text:            s.text,
+          original:        s.original,
+          checked:         false,
+          isHeader:        s.isHeader,
+          sizeMap:         s.sizeMap,
+          sourceBox:       s.sourceBox,
+          sourceFileIndex: s.sourceFileIndex,
         }));
       } catch (aiErr: any) {
         // AI / video tabs: re-throw so the outer catch shows the right error message
@@ -1834,10 +1836,8 @@ export default function Home() {
                       onToggle={() => toggleStep(step.id)}
                       onActivate={() => setActiveMenuStepId((prev) => prev === step.id ? null : step.id)}
                       onLocate={() => {
-                        if (step.sourceBox) {
-                          setHighlightedStepId(step.id);
-                          setCurrentFileIndex(step.sourceFileIndex ?? 0);
-                        }
+                        setCurrentFileIndex(step.sourceFileIndex ?? 0);
+                        if (step.sourceBox) setHighlightedStepId(step.id);
                         setActiveMenuStepId(null);
                         setShowReferencePanel(true);
                       }}
@@ -2267,9 +2267,9 @@ export default function Home() {
                 />
               ) : (
                 /* ── Image carousel ── */
-                <div className="flex-1 overflow-y-auto px-4 py-5 relative">
-                  {/* Image + highlight overlay wrapper */}
-                  <div style={{ position: "relative" }}>
+                <div className="flex-1 overflow-y-auto px-4 py-5">
+                  {/* Wrapper: overflow:hidden clips the spotlight shadow at the image edge */}
+                  <div style={{ position: "relative", width: "100%", overflow: "hidden", borderRadius: "1rem", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)" }}>
                     <AnimatePresence mode="wait">
                       <motion.img
                         key={file.url}
@@ -2279,74 +2279,52 @@ export default function Home() {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -30 }}
                         transition={{ duration: 0.18 }}
-                        style={{
-                          width: "100%",
-                          borderRadius: "1rem",
-                          display: "block",
-                          boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
-                        }}
+                        style={{ width: "100%", display: "block" }}
                       />
                     </AnimatePresence>
-                    {/* Highlight box — shown when a step with sourceBox is highlighted */}
-                    {(() => {
-                      const hStep = highlightedStepId !== null
-                        ? steps.find((s) => s.id === highlightedStepId)
-                        : null;
-                      const boxVisible = !!(hStep?.sourceBox && (hStep.sourceFileIndex ?? 0) === currentFileIndex);
-                      const box = boxVisible ? hStep!.sourceBox! : null;
-                      return (
-                        <AnimatePresence>
-                          {box && (
+
+                    {/* Highlight box: sibling of the image, positioned with % coords */}
+                    <AnimatePresence>
+                      {(() => {
+                        if (highlightedStepId === null) return null;
+                        const hStep = steps.find((s) => s.id === highlightedStepId);
+                        if (!hStep?.sourceBox || (hStep.sourceFileIndex ?? 0) !== currentFileIndex) return null;
+                        const [ymin, xmin, ymax, xmax] = hStep.sourceBox;
+                        return (
+                          <motion.div
+                            key={`highlight-${highlightedStepId}`}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.25 }}
+                            style={{
+                              position:     "absolute",
+                              top:          `${ymin / 10}%`,
+                              left:         `${xmin / 10}%`,
+                              width:        `${(xmax - xmin) / 10}%`,
+                              height:       `${(ymax - ymin) / 10}%`,
+                              zIndex:       10,
+                              boxShadow:    "0 0 0 9999px rgba(0,0,0,0.52)",
+                              border:       "3px solid #10b981",
+                              borderRadius: "4px",
+                              pointerEvents:"none",
+                            }}
+                          >
+                            {/* Pulse ring */}
                             <motion.div
-                              key={`highlight-${highlightedStepId}`}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.25 }}
+                              animate={{ opacity: [0.6, 0, 0.6], scale: [1, 1.08, 1] }}
+                              transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                               style={{
                                 position:     "absolute",
-                                top:          `${box[0] / 10}%`,
-                                left:         `${box[1] / 10}%`,
-                                width:        `${(box[3] - box[1]) / 10}%`,
-                                height:       `${(box[2] - box[0]) / 10}%`,
-                                pointerEvents:"none",
+                                inset:        "-6px",
+                                border:       "2px solid rgba(16,185,129,0.5)",
+                                borderRadius: "8px",
                               }}
-                            >
-                              {/* Fill */}
-                              <motion.div
-                                animate={{ opacity: [0.18, 0.35, 0.18] }}
-                                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                                style={{
-                                  position:     "absolute",
-                                  inset:        0,
-                                  background:   "rgba(100,160,120,1)",
-                                  borderRadius: "5px",
-                                }}
-                              />
-                              {/* Border */}
-                              <div style={{
-                                position:     "absolute",
-                                inset:        0,
-                                border:       "2.5px solid rgba(80,145,100,0.95)",
-                                borderRadius: "5px",
-                                boxShadow:    "0 0 0 3px rgba(100,160,120,0.20)",
-                              }} />
-                              {/* Expanding ring */}
-                              <motion.div
-                                animate={{ opacity: [0.45, 0, 0.45], scale: [1, 1.1, 1] }}
-                                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                                style={{
-                                  position:     "absolute",
-                                  inset:        "-5px",
-                                  border:       "2px solid rgba(80,145,100,0.40)",
-                                  borderRadius: "9px",
-                                }}
-                              />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      );
-                    })()}
+                            />
+                          </motion.div>
+                        );
+                      })()}
+                    </AnimatePresence>
                   </div>
 
                   {/* Prev / Next navigation */}
