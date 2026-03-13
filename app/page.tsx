@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "./lib/db";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Target } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Target, Search } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
 
@@ -20,6 +20,8 @@ interface Step {
   count?: number;
   subCount?: number;
   sizeMap?: Record<string, string>;
+  sourceBox?: [number, number, number, number]; // [ymin, xmin, ymax, xmax] in 0-1000 coords
+  sourceFileIndex?: number;                     // index into project's originalFiles array
 }
 
 interface Project {
@@ -295,6 +297,7 @@ export default function Home() {
   const [codeError, setCodeError]                   = useState(false);
   const [showReferencePanel, setShowReferencePanel]     = useState(false);
   const [highlightedStepId, setHighlightedStepId]       = useState<number | null>(null);
+  const [activeMenuStepId, setActiveMenuStepId]         = useState<number | null>(null);
   const [currentProjectFiles, setCurrentProjectFiles]   = useState<{ url: string; mimeType: string }[]>([]);
   const [storageWarning, setStorageWarning]             = useState(false);
   const [currentFileIndex, setCurrentFileIndex]         = useState(0);
@@ -310,6 +313,18 @@ export default function Home() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Dismiss the step context menu when the user clicks outside any step row
+  useEffect(() => {
+    if (activeMenuStepId === null) return;
+    function handleOutside(e: PointerEvent) {
+      if (!(e.target as Element).closest("[data-step-menu]")) {
+        setActiveMenuStepId(null);
+      }
+    }
+    document.addEventListener("pointerdown", handleOutside);
+    return () => document.removeEventListener("pointerdown", handleOutside);
+  }, [activeMenuStepId]);
   const [rateLimitSecondsLeft, setRateLimitSecondsLeft] = useState<number | null>(null);
 
   // Countdown timer for rate-limit (429)
@@ -922,6 +937,7 @@ export default function Home() {
   const firstUncheckedIdx = steps.findIndex((s) => !s.isHeader && !s.checked);
   const isDeepInList      = firstUncheckedIdx > 4;
   const isPdf             = currentProjectFiles[currentFileIndex]?.mimeType === "application/pdf";
+
   const isDisabled = (
     activeTab === "text" ? inputText.trim().length === 0 :
     aiSubTab === "video" ? !videoUrl.trim() :
@@ -1813,7 +1829,19 @@ export default function Home() {
                       isEditMode={isEditMode}
                       selectedSize={selectedSize}
                       highlighted={highlightedStepId === step.id}
+                      isActive={activeMenuStepId === step.id}
+                      lang={lang}
                       onToggle={() => toggleStep(step.id)}
+                      onActivate={() => setActiveMenuStepId((prev) => prev === step.id ? null : step.id)}
+                      onLocate={() => {
+                        if (step.sourceBox) {
+                          setHighlightedStepId(step.id);
+                          setCurrentFileIndex(step.sourceFileIndex ?? 0);
+                        }
+                        setActiveMenuStepId(null);
+                        setShowReferencePanel(true);
+                      }}
+                      onStartEdit={() => setActiveMenuStepId(null)}
                       onSubCountChange={(delta) => updateSubCount(step.id, delta)}
                       onTextEdit={(text) => handleTextEdit(step.id, text)}
                       onDelete={() => deleteStep(step.id)}
@@ -2215,7 +2243,7 @@ export default function Home() {
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.92 }}
-                onClick={() => setShowReferencePanel(false)}
+                onClick={() => { setShowReferencePanel(false); setHighlightedStepId(null); }}
                 style={{
                   width: "34px", height: "34px", borderRadius: "999px",
                   background: "rgba(255,255,255,0.12)", border: "none",
@@ -2240,23 +2268,86 @@ export default function Home() {
               ) : (
                 /* ── Image carousel ── */
                 <div className="flex-1 overflow-y-auto px-4 py-5 relative">
-                  <AnimatePresence mode="wait">
-                    <motion.img
-                      key={file.url}
-                      src={file.url}
-                      alt={`Pattern page ${currentFileIndex + 1}`}
-                      initial={{ opacity: 0, x: 30 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -30 }}
-                      transition={{ duration: 0.18 }}
-                      style={{
-                        width: "100%",
-                        borderRadius: "1rem",
-                        display: "block",
-                        boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
-                      }}
-                    />
-                  </AnimatePresence>
+                  {/* Image + highlight overlay wrapper */}
+                  <div style={{ position: "relative" }}>
+                    <AnimatePresence mode="wait">
+                      <motion.img
+                        key={file.url}
+                        src={file.url}
+                        alt={`Pattern page ${currentFileIndex + 1}`}
+                        initial={{ opacity: 0, x: 30 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -30 }}
+                        transition={{ duration: 0.18 }}
+                        style={{
+                          width: "100%",
+                          borderRadius: "1rem",
+                          display: "block",
+                          boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)",
+                        }}
+                      />
+                    </AnimatePresence>
+                    {/* Highlight box — shown when a step with sourceBox is highlighted */}
+                    {(() => {
+                      const hStep = highlightedStepId !== null
+                        ? steps.find((s) => s.id === highlightedStepId)
+                        : null;
+                      const boxVisible = !!(hStep?.sourceBox && (hStep.sourceFileIndex ?? 0) === currentFileIndex);
+                      const box = boxVisible ? hStep!.sourceBox! : null;
+                      return (
+                        <AnimatePresence>
+                          {box && (
+                            <motion.div
+                              key={`highlight-${highlightedStepId}`}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.25 }}
+                              style={{
+                                position:     "absolute",
+                                top:          `${box[0] / 10}%`,
+                                left:         `${box[1] / 10}%`,
+                                width:        `${(box[3] - box[1]) / 10}%`,
+                                height:       `${(box[2] - box[0]) / 10}%`,
+                                pointerEvents:"none",
+                              }}
+                            >
+                              {/* Fill */}
+                              <motion.div
+                                animate={{ opacity: [0.18, 0.35, 0.18] }}
+                                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                                style={{
+                                  position:     "absolute",
+                                  inset:        0,
+                                  background:   "rgba(100,160,120,1)",
+                                  borderRadius: "5px",
+                                }}
+                              />
+                              {/* Border */}
+                              <div style={{
+                                position:     "absolute",
+                                inset:        0,
+                                border:       "2.5px solid rgba(80,145,100,0.95)",
+                                borderRadius: "5px",
+                                boxShadow:    "0 0 0 3px rgba(100,160,120,0.20)",
+                              }} />
+                              {/* Expanding ring */}
+                              <motion.div
+                                animate={{ opacity: [0.45, 0, 0.45], scale: [1, 1.1, 1] }}
+                                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                                style={{
+                                  position:     "absolute",
+                                  inset:        "-5px",
+                                  border:       "2px solid rgba(80,145,100,0.40)",
+                                  borderRadius: "9px",
+                                }}
+                              />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      );
+                    })()}
+                  </div>
 
                   {/* Prev / Next navigation */}
                   {currentProjectFiles.length > 1 && (
@@ -2588,23 +2679,33 @@ function parseMaxCount(step: Step): number | null {
 function StepItem({
   step,
   index,
+  lang = "en",
   onToggle,
+  onActivate,
+  onLocate,
+  onStartEdit,
   onSubCountChange,
   onTextEdit,
   isEditMode = false,
   onDelete,
   selectedSize = "all",
   highlighted = false,
+  isActive = false,
 }: {
   step: Step;
   index: number;
+  lang?: "zh" | "en";
   onToggle: () => void;
+  onActivate?: () => void;
+  onLocate?: () => void;
+  onStartEdit?: () => void;
   onSubCountChange: (delta: number) => void;
   onTextEdit: (newText: string) => void;
   isEditMode?: boolean;
   onDelete?: () => void;
   selectedSize?: string;
   highlighted?: boolean;
+  isActive?: boolean;
 }) {
   const [editing, setEditing]   = useState(false);
   const [editText, setEditText] = useState(step.text);
@@ -2620,9 +2721,9 @@ function StepItem({
     if (!editing) setEditText(step.text);
   }, [step.text, editing]);
 
-  function startEdit(e: React.MouseEvent) {
-    if (step.checked) return;
-    e.stopPropagation();
+  function startEdit() {
+    if (step.checked || isEditMode) return;
+    onStartEdit?.();           // dismiss the context menu in the parent
     setEditText(step.text);
     setEditing(true);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -2691,9 +2792,10 @@ function StepItem({
       }}
       whileHover={(editing || isEditMode) ? undefined : { y: -1 }}
       whileTap={(editing || isEditMode) ? undefined : { scale: 0.985 }}
-      onClick={(editing || isEditMode) ? undefined : onToggle}
+      onClick={(editing || isEditMode) ? undefined : () => onActivate?.()}
       className={`print-step flex items-start gap-3 px-4 py-2.5 select-none ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
       data-checked={step.checked}
+      data-step-menu={step.id}
       style={{
         position:     "relative",
         background:   editing
@@ -2701,11 +2803,18 @@ function StepItem({
           : step.checked ? "var(--bg)" : "var(--bg-card)",
         border: editing
           ? "1.5px solid #bfdbfe"
-          : `1.5px solid ${step.checked ? "var(--border)" : "var(--morandi-stone)"}`,
+          : isActive && !step.checked
+            ? "1.5px solid rgba(100,150,115,0.70)"
+            : `1.5px solid ${step.checked ? "var(--border)" : "var(--morandi-stone)"}`,
         borderRadius: "1.25rem",
-        boxShadow:    editing || step.checked ? "none" : "0 3px 12px -6px rgba(0,0,0,0.08)",
+        boxShadow:    editing || step.checked
+          ? "none"
+          : isActive
+            ? "0 0 0 3px rgba(100,150,115,0.15), 0 3px 12px -6px rgba(0,0,0,0.08)"
+            : "0 3px 12px -6px rgba(0,0,0,0.08)",
         transition:   "background 0.2s, border-color 0.2s, box-shadow 0.2s",
-        overflow:     "hidden",
+        overflow:     "visible",
+        zIndex:       isActive ? 20 : undefined,
       }}
     >
       {/* Highlight flash overlay */}
@@ -2720,10 +2829,82 @@ function StepItem({
             style={{
               position: "absolute", inset: 0,
               background: "var(--morandi-green)",
-              borderRadius: "inherit",
+              borderRadius: "1.25rem",
               pointerEvents: "none",
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── Context action menu ── */}
+      <AnimatePresence>
+        {isActive && !editing && !isEditMode && (
+          <motion.div
+            key="step-ctx-menu"
+            initial={{ opacity: 0, scale: 0.88, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.88, y: -4 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26 }}
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              position:     "absolute",
+              top:          "calc(100% + 7px)",
+              right:        "0",
+              zIndex:       30,
+              display:      "flex",
+              alignItems:   "center",
+              gap:          "4px",
+              background:   "rgba(255,255,255,0.97)",
+              backdropFilter: "blur(14px)",
+              border:       "1px solid rgba(190,205,195,0.55)",
+              borderRadius: "999px",
+              padding:      "5px 8px",
+              boxShadow:    "0 6px 24px -6px rgba(0,0,0,0.16), 0 1px 4px rgba(0,0,0,0.06)",
+              pointerEvents:"auto",
+            }}
+          >
+            {/* Edit */}
+            <motion.button
+              whileHover={{ scale: 1.12, background: "rgba(239,246,255,0.9)" }}
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => { e.stopPropagation(); startEdit(); }}
+              disabled={step.checked}
+              title={step.checked ? undefined : (lang === "zh" ? "编辑步骤" : "Edit step")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: "30px", height: "30px", borderRadius: "999px",
+                background: "transparent", border: "none",
+                color: step.checked ? "var(--border)" : "var(--morandi-sage)",
+                cursor: step.checked ? "default" : "pointer",
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              <Edit3 size={14} strokeWidth={2} />
+            </motion.button>
+
+            {/* Divider */}
+            <div style={{ width: "1px", height: "18px", background: "rgba(180,195,185,0.5)", flexShrink: 0 }} />
+
+            {/* Locate in pattern */}
+            <motion.button
+              whileHover={{ scale: 1.12, background: "rgba(235,248,238,0.9)" }}
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => { e.stopPropagation(); onLocate?.(); }}
+              title={step.sourceBox
+                ? (lang === "zh" ? "在图解中找到此步骤" : "Find in original pattern")
+                : (lang === "zh" ? "查看原图" : "Open pattern")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: "30px", height: "30px", borderRadius: "999px",
+                background: "transparent", border: "none",
+                color: step.sourceBox ? "rgba(80,145,100,0.9)" : "var(--text-muted)",
+                cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              <Search size={14} strokeWidth={2} />
+            </motion.button>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -2732,7 +2913,7 @@ function StepItem({
         animate={step.checked ? { scale: [1, 1.3, 1] } : { scale: 1 }}
         transition={{ duration: 0.28 }}
         className="shrink-0 mt-[3px]"
-        onClick={(e) => { if (editing) e.stopPropagation(); }}
+        onClick={(e) => { e.stopPropagation(); if (!isEditMode) onToggle(); }}
       >
         {step.checked ? (
           <CheckCircle2 size={22} strokeWidth={1.8} style={{ color: "var(--morandi-green)" }} />
@@ -2774,11 +2955,9 @@ function StepItem({
           ) : (
             <span
               className="print-step-text text-base font-medium leading-relaxed"
-              onClick={startEdit}
               style={{
                 color:          step.checked ? "var(--text-muted)" : "var(--text-main)",
                 textDecoration: step.checked ? "line-through" : "none",
-                cursor:         step.checked ? "pointer" : "text",
                 transition:     "color 0.2s",
                 display:        "block",
               }}

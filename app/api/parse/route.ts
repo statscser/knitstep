@@ -17,6 +17,8 @@ type ParsedStep = {
   original?: string;
   isHeader?: boolean;
   sizeMap?: Record<string, string>;
+  sourceBox?: [number, number, number, number]; // [ymin, xmin, ymax, xmax] in 0-1000
+  sourceFileIndex?: number;
 };
 
 function flattenSteps(items: any[]): ParsedStep[] {
@@ -35,6 +37,17 @@ function flattenSteps(items: any[]): ParsedStep[] {
           !Array.isArray(item.sizeMap)
         ) {
           step.sizeMap = item.sizeMap as Record<string, string>;
+        }
+        // Visual grounding coords — validate shape before accepting
+        if (
+          Array.isArray(item.sourceBox) &&
+          item.sourceBox.length === 4 &&
+          item.sourceBox.every((v: unknown) => typeof v === "number" && isFinite(v))
+        ) {
+          step.sourceBox = item.sourceBox as [number, number, number, number];
+        }
+        if (typeof item.sourceFileIndex === "number" && isFinite(item.sourceFileIndex)) {
+          step.sourceFileIndex = Math.max(0, Math.floor(item.sourceFileIndex));
         }
         result.push(step);
       }
@@ -96,7 +109,13 @@ async function runGemini(
        绝对禁止：嵌套数组、sub_steps、children、rows 或任何递归结构。
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
        如果原文本身已经是中文，则不需要 original 字段，只返回 text 字段即可。
-       正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}
+       ${hasImages ? `【视觉定位 — 必须执行】：
+       对每个步骤，使用视觉定位标注其在输入图片中的精确位置。
+       "sourceBox" 字段：归一化坐标数组 [ymin, xmin, ymax, xmax]，取值范围 0-1000。
+       "sourceFileIndex" 字段：该步骤来自第几张图片（从 0 开始计数）。
+       如确实无法定位，可省略这两个字段（将被视为 undefined 处理）。
+       正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}` :
+       `正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}`}
        ${hasImages ? "" : `\n       图解文本如下：\n       ${text}`}`
       : `You are a professional knitting pattern parser.
        ${hasImages ? "Analyze the knitting pattern image(s) and extract all instructions" : "Parse the following knitting pattern text"} into clear, actionable checklist steps.
@@ -127,7 +146,13 @@ async function runGemini(
        Regular step fields: "text" (string), optional "original" (string), optional "sizeMap" (object).
        Header step fields: "text" (string), "isHeader": true.
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
-       Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}
+       ${hasImages ? `[VISUAL GROUNDING — REQUIRED FOR IMAGE INPUT]:
+       For every step you generate, use visual grounding to identify its exact location in the source image.
+       "sourceBox": a normalized bounding box array [ymin, xmin, ymax, xmax] where all values are integers from 0 to 1000.
+       "sourceFileIndex": 0-based integer indicating which of the provided images the step was found on.
+       If you genuinely cannot locate a step, you may omit these fields (they will be treated as undefined).
+       Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}` :
+       `Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}`}
        ${hasImages ? "" : `\n       Pattern:\n       ${text}`}`);
 
   const contents = hasImages
