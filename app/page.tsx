@@ -2266,10 +2266,12 @@ export default function Home() {
                   style={{ flex: 1, width: "100%", border: "none", display: "block" }}
                 />
               ) : (
-                /* ── Image carousel ── */
-                <div className="flex-1 overflow-y-auto px-4 py-5">
-                  {/* Wrapper: overflow:hidden clips the spotlight shadow at the image edge */}
-                  <div style={{ position: "relative", width: "100%", overflow: "hidden", borderRadius: "1rem", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)" }}>
+                /* ── Image carousel ──
+                   inline-block wrapper: shrinks to image w×h so % coords align exactly
+                   with image pixels; display:block on <img> prevents the ~4px line-gap
+                   that inline images add below the baseline */
+                <div className="flex-1 overflow-y-auto px-4 py-5" style={{ textAlign: "left" }}>
+                  <div style={{ display: "inline-block", position: "relative", width: "100%", borderRadius: "1rem", boxShadow: "0 4px 24px -8px rgba(0,0,0,0.5)", overflow: "hidden" }}>
                     <AnimatePresence mode="wait">
                       <motion.img
                         key={file.url}
@@ -2283,13 +2285,17 @@ export default function Home() {
                       />
                     </AnimatePresence>
 
-                    {/* Highlight box: sibling of the image, positioned with % coords */}
+                    {/* Highlight box: positioned with % coords relative to the image wrapper */}
                     <AnimatePresence>
                       {(() => {
                         if (highlightedStepId === null) return null;
                         const hStep = steps.find((s) => s.id === highlightedStepId);
                         if (!hStep?.sourceBox || (hStep.sourceFileIndex ?? 0) !== currentFileIndex) return null;
                         const [ymin, xmin, ymax, xmax] = hStep.sourceBox;
+                        // Pad the box so it covers the full step line even with slight AI imprecision.
+                        // Use top/right/bottom/left (not width/height) to avoid CSS % issues
+                        // in auto-height containing blocks.
+                        const P = 15; // 1.5% padding on each side
                         return (
                           <motion.div
                             key={`highlight-${highlightedStepId}`}
@@ -2299,12 +2305,13 @@ export default function Home() {
                             transition={{ duration: 0.25 }}
                             style={{
                               position:     "absolute",
-                              top:          `${ymin / 10}%`,
-                              left:         `${xmin / 10}%`,
-                              width:        `${(xmax - xmin) / 10}%`,
-                              height:       `${(ymax - ymin) / 10}%`,
+                              top:          `${Math.max(0, ymin - P) / 10}%`,
+                              left:         `${Math.max(0, xmin - P) / 10}%`,
+                              right:        `${Math.max(0, 1000 - xmax - P) / 10}%`,
+                              bottom:       `${Math.max(0, 1000 - ymax - P) / 10}%`,
+                              minWidth:     "20px",
                               zIndex:       10,
-                              boxShadow:    "0 0 0 9999px rgba(0,0,0,0.52)",
+                              boxShadow:    "0 0 0 9999px rgba(0,0,0,0.25)",
                               border:       "3px solid #10b981",
                               borderRadius: "4px",
                               pointerEvents:"none",

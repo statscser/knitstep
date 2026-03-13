@@ -111,9 +111,14 @@ async function runGemini(
        如果原文本身已经是中文，则不需要 original 字段，只返回 text 字段即可。
        ${hasImages ? `【视觉定位 — 必须执行】：
        对每个步骤，使用视觉定位标注其在输入图片中的精确位置。
-       "sourceBox" 字段：归一化坐标数组 [ymin, xmin, ymax, xmax]，取值范围 0-1000。
+       "sourceBox" 字段：归一化坐标数组 [ymin, xmin, ymax, xmax]，取值范围 0-1000。横向覆盖整列文字宽度（全宽图解的 xmin 接近 0，xmax 接近 1000）。
        "sourceFileIndex" 字段：该步骤来自第几张图片（从 0 开始计数）。
        如确实无法定位，可省略这两个字段（将被视为 undefined 处理）。
+       【视觉定位精准度协议】：
+       1. 紧凑边界框：sourceBox 必须紧紧包裹对应的文字行或图表图标，避免多余边距。
+       2. 垂直对齐：ymin 严格对齐文字顶部，ymax 严格对齐文字底部（基线）。
+       3. 防偏移校准：对于较长的图片，请仔细校准 0-1000 的纵向比例。若步骤在图片最底部，其 ymax 应接近 1000。
+       4. 索引完整性：提供多张图片时，仔细确认 sourceFileIndex（从 0 开始）。
        正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}` :
        `正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}`}
        ${hasImages ? "" : `\n       图解文本如下：\n       ${text}`}`
@@ -148,9 +153,14 @@ async function runGemini(
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
        ${hasImages ? `[VISUAL GROUNDING — REQUIRED FOR IMAGE INPUT]:
        For every step you generate, use visual grounding to identify its exact location in the source image.
-       "sourceBox": a normalized bounding box array [ymin, xmin, ymax, xmax] where all values are integers from 0 to 1000.
+       "sourceBox": a normalized bounding box array [ymin, xmin, ymax, xmax] where all values are integers from 0 to 1000. Cover the full text column width (xmin near 0, xmax near 1000 for full-width patterns).
        "sourceFileIndex": 0-based integer indicating which of the provided images the step was found on.
        If you genuinely cannot locate a step, you may omit these fields (they will be treated as undefined).
+       [VISUAL GROUNDING ACCURACY PROTOCOL]:
+       1. Tight Bounding Boxes: sourceBox must tightly enclose the relevant row of text or chart icons. Avoid extra margins.
+       2. Vertical Alignment: ymin must align strictly with the top of the text; ymax must align strictly with the baseline (bottom) of the text.
+       3. Zero-Drift Calibration: For long images, calibrate the 0-1000 scale carefully. If a step is at the very bottom of the image, its ymax should be near 1000.
+       4. Index Integrity: Double-check sourceFileIndex (starting from 0) when multiple images are provided.
        Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}` :
        `Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}`}
        ${hasImages ? "" : `\n       Pattern:\n       ${text}`}`);
