@@ -2261,11 +2261,20 @@ export default function Home() {
               const file = currentProjectFiles[currentFileIndex];
               return file.mimeType === "application/pdf" ? (
                 /* ── PDF viewer ── */
-                <iframe
-                  src={file.url}
-                  title="Original Pattern"
-                  style={{ flex: 1, width: "100%", border: "none", display: "block" }}
-                />
+                <div className="flex flex-col flex-1 overflow-y-auto">
+                  <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "11px", textAlign: "center", padding: "6px 0 4px", flexShrink: 0 }}>
+                    {lang === "zh" ? "提示：可在 PDF 内上下滚动查看全部页面" : "Tip: You can scroll within the PDF to see all pages."}
+                  </p>
+                  <div style={{ flex: 1, minHeight: 0, height: "80vh" }}>
+                    <iframe
+                      src={file.url}
+                      title="Original Pattern"
+                      width="100%"
+                      height="100%"
+                      style={{ border: "none", display: "block" }}
+                    />
+                  </div>
+                </div>
               ) : (
                 /* ── Image carousel ──
                    inline-block wrapper: shrinks to image w×h so % coords align exactly

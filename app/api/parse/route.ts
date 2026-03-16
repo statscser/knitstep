@@ -114,11 +114,18 @@ async function runGemini(
        "sourceBox" 字段：归一化坐标数组 [ymin, xmin, ymax, xmax]，取值范围 0-1000。横向覆盖整列文字宽度（全宽图解的 xmin 接近 0，xmax 接近 1000）。
        "sourceFileIndex" 字段：该步骤来自第几张图片（从 0 开始计数）。
        如确实无法定位，可省略这两个字段（将被视为 undefined 处理）。
-       【视觉定位精准度协议】：
-       1. 紧凑边界框：sourceBox 必须紧紧包裹对应的文字行或图表图标，避免多余边距。
-       2. 垂直对齐：ymin 严格对齐文字顶部，ymax 严格对齐文字底部（基线）。
-       3. 防偏移校准：对于较长的图片，请仔细校准 0-1000 的纵向比例。若步骤在图片最底部，其 ymax 应接近 1000。
-       4. 索引完整性：提供多张图片时，仔细确认 sourceFileIndex（从 0 开始）。
+
+       ## 视觉定位协议 (VISUAL GROUNDING PROTOCOL)
+       1. 坐标精度 (Coordinate Precision):
+          - 将图片想象为一个 1000×1000 的网格。
+          - 第一步：找到对应的精确文字行。
+          - 第二步：ymin 必须对齐大写字母的顶部，ymax 必须对齐下伸字母（如 'g' 或 'y'）的底部。
+          - 确保边框是对文字行的"紧密贴合"。
+       2. 锚点校准 (Anchor Calibration):
+          - Y=0 是图片的绝对顶部边缘；Y=1000 是绝对底部。
+          - 若文字位于 PDF 页面中部，请仔细估算其在整张图片中的相对位置。
+       3. 多页逻辑 (Multi-page Logic):
+          - sourceFileIndex 从 0 开始计数。对于 3 页 PDF，第1页索引为 0，第2页为 1，以此类推。务必匹配准确。
        正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}` :
        `正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}`}
        ${hasImages ? "" : `\n       图解文本如下：\n       ${text}`}`
@@ -156,11 +163,18 @@ async function runGemini(
        "sourceBox": a normalized bounding box array [ymin, xmin, ymax, xmax] where all values are integers from 0 to 1000. Cover the full text column width (xmin near 0, xmax near 1000 for full-width patterns).
        "sourceFileIndex": 0-based integer indicating which of the provided images the step was found on.
        If you genuinely cannot locate a step, you may omit these fields (they will be treated as undefined).
-       [VISUAL GROUNDING ACCURACY PROTOCOL]:
-       1. Tight Bounding Boxes: sourceBox must tightly enclose the relevant row of text or chart icons. Avoid extra margins.
-       2. Vertical Alignment: ymin must align strictly with the top of the text; ymax must align strictly with the baseline (bottom) of the text.
-       3. Zero-Drift Calibration: For long images, calibrate the 0-1000 scale carefully. If a step is at the very bottom of the image, its ymax should be near 1000.
-       4. Index Integrity: Double-check sourceFileIndex (starting from 0) when multiple images are provided.
+
+       ## VISUAL GROUNDING PROTOCOL
+       1. Coordinate Precision:
+          - Imagine a 1000×1000 grid over the image.
+          - Step 1: Find the exact line of text.
+          - Step 2: ymin must be the very top of the capital letters; ymax must be the bottom of the descenders (like 'g' or 'y').
+          - Ensure the box is a "tight fit" for the text line.
+       2. Anchor Calibration:
+          - Y=0 is the absolute top edge of the image; Y=1000 is the absolute bottom.
+          - If the text is in the middle of a PDF page, estimate its relative position in the full image carefully.
+       3. Multi-page Logic:
+          - sourceFileIndex is 0-indexed. For a 3-page PDF, index 0 is page 1, index 1 is page 2, etc. Match accurately.
        Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}` :
        `Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}`}
        ${hasImages ? "" : `\n       Pattern:\n       ${text}`}`);

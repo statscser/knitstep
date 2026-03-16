@@ -17,7 +17,7 @@ interface Props {
  *   All coordinate-mapping infrastructure is preserved here.
  *   Flip HIGHLIGHT_ENABLED to true to re-enable once precision is acceptable.
  */
-const HIGHLIGHT_ENABLED = false;
+const HIGHLIGHT_ENABLED = true;
 
 export default function SourceHighlight({ sourceBox, isVisible }: Props) {
   if (!HIGHLIGHT_ENABLED || !isVisible || !sourceBox) return null;
@@ -32,9 +32,19 @@ export default function SourceHighlight({ sourceBox, isVisible }: Props) {
       <motion.div
         key="source-highlight"
         initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
+        animate={{
+          opacity: 1,
+          boxShadow: [
+            "0 0 0 9999px rgba(0,0,0,0.25), 0 0 6px 2px rgba(16,185,129,0.6)",
+            "0 0 0 9999px rgba(0,0,0,0.25), 0 0 14px 5px rgba(16,185,129,0.9)",
+            "0 0 0 9999px rgba(0,0,0,0.25), 0 0 6px 2px rgba(16,185,129,0.6)",
+          ],
+        }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.25 }}
+        transition={{
+          opacity: { duration: 0.25 },
+          boxShadow: { duration: 1.8, repeat: Infinity, ease: "easeInOut" },
+        }}
         style={{
           position:      "absolute",
           top:           `${Math.max(0, ymin - P) / 10}%`,
@@ -43,24 +53,11 @@ export default function SourceHighlight({ sourceBox, isVisible }: Props) {
           bottom:        `${Math.max(0, 1000 - ymax - P) / 10}%`,
           minWidth:      "20px",
           zIndex:        10,
-          boxShadow:     "0 0 0 9999px rgba(0,0,0,0.25)",
-          border:        "3px solid #10b981",
+          border:        "1px solid #10b981",
           borderRadius:  "4px",
           pointerEvents: "none",
         }}
-      >
-        {/* Pulse ring */}
-        <motion.div
-          animate={{ opacity: [0.6, 0, 0.6], scale: [1, 1.08, 1] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-          style={{
-            position:     "absolute",
-            inset:        "-6px",
-            border:       "2px solid rgba(16,185,129,0.5)",
-            borderRadius: "8px",
-          }}
-        />
-      </motion.div>
+      />
     </AnimatePresence>
   );
 }
