@@ -1838,7 +1838,7 @@ export default function Home() {
                       onActivate={() => setActiveMenuStepId((prev) => prev === step.id ? null : step.id)}
                       onLocate={() => {
                         setCurrentFileIndex(step.sourceFileIndex ?? 0);
-                        setHighlightedStepId(step.id);
+                        setHighlightedStepId(null);
                         setActiveMenuStepId(null);
                         setShowReferencePanel(true);
                       }}
