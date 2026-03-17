@@ -1,15 +1,24 @@
 import Dexie, { type Table } from 'dexie';
 
+/** Portable file representation stored in IndexedDB.
+ *  base64 strings serialize reliably on all browsers (including iOS Safari),
+ *  unlike Blob/File objects which can silently lose data on some iOS versions.
+ */
+export interface StoredFile {
+  data: string;      // base64-encoded file content
+  mimeType: string;
+}
+
 export interface DbProject {
   id: string;           // string timestamp id, matches page.tsx Project.id
   name: string;
   steps: any[];         // serialized Step[]
   rowCount: number;
   lastUpdated: number;
-  originalFile?: Blob | File;         // legacy — single file (kept for migration read)
-  originalFiles?: (Blob | File)[];    // v2 — array of all uploaded files
-  selectedSize?: string;       // user's last-chosen size filter for this project
-  availableSizes?: string[];   // cached list of size labels detected in the steps
+  originalFile?: Blob | File;                       // legacy v1 — kept for migration read only
+  originalFiles?: StoredFile[] | (Blob | File)[];   // v2: Blob/File (legacy); v3+: StoredFile[]
+  selectedSize?: string;
+  availableSizes?: string[];
 }
 
 export class KnitStepDatabase extends Dexie {
@@ -17,10 +26,10 @@ export class KnitStepDatabase extends Dexie {
 
   constructor() {
     super('KnitStepDB');
-    // id is the primary key; name and lastUpdated are indexed for future queries
     this.version(1).stores({ projects: 'id, name, lastUpdated' });
-    // v2: added originalFiles array (non-indexed blob field — no schema change needed)
     this.version(2).stores({ projects: 'id, name, lastUpdated' });
+    // v3: no schema change — originalFiles now stores StoredFile[] instead of Blob[]
+    this.version(3).stores({ projects: 'id, name, lastUpdated' });
   }
 }
 

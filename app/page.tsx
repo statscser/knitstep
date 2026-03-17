@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { db } from "./lib/db";
+import { db, type StoredFile } from "./lib/db";
 import SourceHighlight from "./components/SourceHighlight";
-import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Target, Search } from "lucide-react";
+import { Circle, CheckCircle2, UploadCloud, Camera, FileText, X, Printer, RotateCcw, Folder, Edit3, Check, Trash2, Plus, ChevronUp, ChevronLeft, ChevronRight, Video, Target, Search, ExternalLink } from "lucide-react";
 
 const ACCESS_CODE = "KNITSTEPBYSTEP";
 
@@ -31,8 +31,8 @@ interface Project {
   steps: Step[];
   rowCount: number;
   lastUpdated: number;
-  originalFile?: Blob | File;         // legacy field — kept for migration read
-  originalFiles?: (Blob | File)[];    // v2 — all uploaded files
+  originalFile?: Blob | File;                     // legacy field — migration read only
+  originalFiles?: StoredFile[] | (Blob | File)[]; // v2: Blob/File (legacy); v3+: StoredFile[]
   availableSizes: string[];
   selectedSize: string;
 }
@@ -258,6 +258,25 @@ async function compressImage(
   });
 }
 
+// ─── File storage helpers ────────────────────────────────────────────────────
+
+/** Returns true if `f` is a StoredFile (base64 record) rather than a Blob/File. */
+function isStoredFile(f: StoredFile | Blob | File): f is StoredFile {
+  return !(f instanceof Blob) && typeof (f as StoredFile).data === "string";
+}
+
+/** Converts a File/Blob to a StoredFile (base64 + mimeType) safe for IndexedDB on all platforms. */
+async function fileToStoredFile(f: File | Blob): Promise<StoredFile> {
+  const ab    = await f.arrayBuffer();
+  const bytes = new Uint8Array(ab);
+  let binary  = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...(bytes.subarray(i, i + chunk) as unknown as number[]));
+  }
+  return { data: btoa(binary), mimeType: f.type || "application/octet-stream" };
+}
+
 // ─── Shared style tokens ─────────────────────────────────────────────────────
 
 const CARD_STYLE: React.CSSProperties = {
@@ -401,6 +420,7 @@ export default function Home() {
     hydrated.current = true;
     setMounted(true);
 
+
     // ── Load projects from IndexedDB; migrate localStorage data if present ──
     (async () => {
       try {
@@ -506,7 +526,10 @@ export default function Home() {
     if (!mounted) return;
     let totalBytes = 0;
     for (const p of projects) {
-      for (const f of p.originalFiles ?? []) totalBytes += f.size;
+      for (const f of p.originalFiles ?? []) {
+        // StoredFile: base64 length * 0.75 ≈ original byte size
+        totalBytes += isStoredFile(f) ? Math.ceil(f.data.length * 0.75) : (f as Blob).size;
+      }
       if (p.originalFile) totalBytes += (p.originalFile as Blob).size;
     }
     setStorageWarning(totalBytes > 50 * 1024 * 1024);
@@ -529,28 +552,41 @@ export default function Home() {
     // React batch as setProjects(loaded), so by the time this effect runs the
     // projects array is already populated.
     const proj = projects.find((p) => p.id === currentProjectId);
-    const files: (Blob | File)[] =
+    const rawFiles =
       proj?.originalFiles && proj.originalFiles.length > 0
         ? proj.originalFiles
         : proj?.originalFile
           ? [proj.originalFile]
           : [];
 
-    if (files.length === 0) {
+    if (rawFiles.length === 0) {
       setCurrentProjectFiles([]);
       return;
     }
 
-    const entries = files.map((f) => ({
-      url:      URL.createObjectURL(f),
-      mimeType: f.type || "application/octet-stream",
-    }));
-    const urls = entries.map((e) => e.url);
-    currentProjectFileUrlsRef.current = urls;
+    // Build blob URLs for every file. StoredFile (base64) is reconstructed into a
+    // Blob first. All URLs are tracked and revoked on cleanup to prevent leaks.
+    const blobUrlsToRevoke: string[] = [];
+    const entries = rawFiles.map((f) => {
+      let blob: Blob;
+      if (isStoredFile(f)) {
+        const bytes = atob(f.data);
+        const arr   = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        blob = new Blob([arr], { type: f.mimeType });
+      } else {
+        blob = f as Blob;
+      }
+      const url = URL.createObjectURL(blob);
+      blobUrlsToRevoke.push(url);
+      return { url, mimeType: blob.type || "application/octet-stream" };
+    });
+
+    currentProjectFileUrlsRef.current = blobUrlsToRevoke;
     setCurrentProjectFiles(entries);
 
     return () => {
-      urls.forEach((u) => URL.revokeObjectURL(u));
+      blobUrlsToRevoke.forEach((u) => URL.revokeObjectURL(u));
       currentProjectFileUrlsRef.current = [];
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -680,13 +716,19 @@ export default function Home() {
           lang === "zh"
             ? `${d.getMonth() + 1}月${d.getDate()}日 项目`
             : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Project`;
+        // Convert raw File objects → StoredFile (base64) before persisting.
+        // Storing plain Blob/File in IndexedDB is unreliable on iOS Safari.
+        const storedFiles: StoredFile[] = latestFilesRef.current.length > 0
+          ? await Promise.all(latestFilesRef.current.map(fileToStoredFile))
+          : [];
+
         const newProject: Project = {
           id:             now.toString(),
           name:           projectName,
           steps:          parsed,
           rowCount:       parsed.filter((s) => !s.isHeader).length,
           lastUpdated:    now,
-          originalFiles:  latestFilesRef.current.length > 0 ? [...latestFilesRef.current] : undefined,
+          originalFiles:  storedFiles.length > 0 ? storedFiles : undefined,
           availableSizes: getAvailableSizes(parsed),
           selectedSize:   "all",
         };
@@ -1837,10 +1879,19 @@ export default function Home() {
                       onToggle={() => toggleStep(step.id)}
                       onActivate={() => setActiveMenuStepId((prev) => prev === step.id ? null : step.id)}
                       onLocate={() => {
-                        setCurrentFileIndex(step.sourceFileIndex ?? 0);
-                        setHighlightedStepId(null);
+                        const idx     = step.sourceFileIndex ?? 0;
+                        const safeIdx = idx < currentProjectFiles.length ? idx : 0;
+                        const target  = currentProjectFiles[safeIdx];
                         setActiveMenuStepId(null);
-                        setShowReferencePanel(true);
+                        if (target?.mimeType === "application/pdf") {
+                          // Open the correct page in the browser's native PDF viewer.
+                          // #page= is honoured by Chrome/Firefox/Edge desktop viewers.
+                          window.open(`${target.url}#page=${safeIdx + 1}`, "_blank", "noopener,noreferrer");
+                        } else {
+                          setCurrentFileIndex(safeIdx);
+                          setHighlightedStepId(step.id);
+                          setShowReferencePanel(true);
+                        }
                       }}
                       onStartEdit={() => setActiveMenuStepId(null)}
                       onSubCountChange={(delta) => updateSubCount(step.id, delta)}
@@ -2022,7 +2073,15 @@ export default function Home() {
                 <motion.button
                   whileHover={{ scale: currentProjectFiles.length > 0 ? 1.1 : 1, y: currentProjectFiles.length > 0 ? -1 : 0 }}
                   whileTap={{ scale: 0.92 }}
-                  onClick={() => { setCurrentFileIndex(0); setShowReferencePanel(true); }}
+                  onClick={() => {
+                    const firstFile = currentProjectFiles[0];
+                    if (firstFile?.mimeType === "application/pdf") {
+                      window.open(firstFile.url, "_blank", "noopener,noreferrer");
+                    } else {
+                      setCurrentFileIndex(0);
+                      setShowReferencePanel(true);
+                    }
+                  }}
                   aria-label={lang === "zh" ? "查看原图" : "View Pattern"}
                   style={{
                     width: "44px", height: "44px", borderRadius: "999px",
@@ -2260,20 +2319,24 @@ export default function Home() {
             {currentProjectFiles.length > 0 ? (() => {
               const file = currentProjectFiles[currentFileIndex];
               return file.mimeType === "application/pdf" ? (
-                /* ── PDF viewer ── */
-                <div className="flex flex-col flex-1 overflow-y-auto">
-                  <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "11px", textAlign: "center", padding: "6px 0 4px", flexShrink: 0 }}>
-                    {lang === "zh" ? "提示：可在 PDF 内上下滚动查看全部页面" : "Tip: You can scroll within the PDF to see all pages."}
+                /* ── PDF fallback (normally bypassed — PDFs open via window.open) ── */
+                <div className="flex flex-col flex-1 items-center justify-center gap-4">
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
+                    {lang === "zh" ? "PDF 将在新标签页中打开" : "PDF opens in a new tab."}
                   </p>
-                  <div style={{ flex: 1, minHeight: 0, height: "80vh" }}>
-                    <iframe
-                      src={file.url}
-                      title="Original Pattern"
-                      width="100%"
-                      height="100%"
-                      style={{ border: "none", display: "block" }}
-                    />
-                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }}
+                    onClick={() => window.open(file.url, "_blank", "noopener,noreferrer")}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "6px",
+                      background: "rgba(16,185,129,0.18)", border: "1px solid rgba(16,185,129,0.4)",
+                      borderRadius: "10px", padding: "8px 18px",
+                      color: "#10b981", fontSize: "13px", fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    <ExternalLink size={14} strokeWidth={2.5} />
+                    {lang === "zh" ? "打开 PDF" : "Open PDF"}
+                  </motion.button>
                 </div>
               ) : (
                 /* ── Image carousel ──

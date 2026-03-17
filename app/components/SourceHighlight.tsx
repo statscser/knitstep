@@ -17,45 +17,35 @@ interface Props {
  *   All coordinate-mapping infrastructure is preserved here.
  *   Flip HIGHLIGHT_ENABLED to true to re-enable once precision is acceptable.
  */
-const HIGHLIGHT_ENABLED = false;
+const HIGHLIGHT_ENABLED = true;
 
 export default function SourceHighlight({ sourceBox, isVisible }: Props) {
   if (!HIGHLIGHT_ENABLED || !isVisible || !sourceBox) return null;
 
   const [ymin, xmin, ymax, xmax] = sourceBox;
   // Pad the box so it covers the full step line even with slight AI imprecision.
-  // top/right/bottom/left avoids CSS height-percentage issues in auto-height containers.
   const P = 15; // 1.5% of image dimension on each side
 
   return (
     <AnimatePresence>
       <motion.div
         key="source-highlight"
-        initial={{ opacity: 0 }}
-        animate={{
-          opacity: 1,
-          boxShadow: [
-            "0 0 0 9999px rgba(0,0,0,0.25), 0 0 6px 2px rgba(16,185,129,0.6)",
-            "0 0 0 9999px rgba(0,0,0,0.25), 0 0 14px 5px rgba(16,185,129,0.9)",
-            "0 0 0 9999px rgba(0,0,0,0.25), 0 0 6px 2px rgba(16,185,129,0.6)",
-          ],
-        }}
+        initial={{ opacity: 0, scale: 1.04 }}
+        animate={{ opacity: [0, 1, 0.6, 1], scale: 1 }}
         exit={{ opacity: 0 }}
-        transition={{
-          opacity: { duration: 0.25 },
-          boxShadow: { duration: 1.8, repeat: Infinity, ease: "easeInOut" },
-        }}
+        transition={{ duration: 0.5, times: [0, 0.3, 0.6, 1], ease: "easeOut" }}
         style={{
-          position:      "absolute",
-          top:           `${Math.max(0, ymin - P) / 10}%`,
-          left:          `${Math.max(0, xmin - P) / 10}%`,
-          right:         `${Math.max(0, 1000 - xmax - P) / 10}%`,
-          bottom:        `${Math.max(0, 1000 - ymax - P) / 10}%`,
-          minWidth:      "20px",
-          zIndex:        10,
-          border:        "1px solid #10b981",
-          borderRadius:  "4px",
-          pointerEvents: "none",
+          position:        "absolute",
+          top:             `${Math.max(0, ymin - P) / 10}%`,
+          left:            `${Math.max(0, xmin - P) / 10}%`,
+          right:           `${Math.max(0, 1000 - xmax - P) / 10}%`,
+          bottom:          `${Math.max(0, 1000 - ymax - P) / 10}%`,
+          minWidth:        "20px",
+          zIndex:          10,
+          border:          "2px dashed #10b981",
+          borderRadius:    "4px",
+          background:      "rgba(16, 185, 129, 0.1)",
+          pointerEvents:   "none",
         }}
       />
     </AnimatePresence>

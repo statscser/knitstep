@@ -117,15 +117,17 @@ async function runGemini(
 
        ## 视觉定位协议 (VISUAL GROUNDING PROTOCOL)
        1. 坐标精度 (Coordinate Precision):
-          - 将图片想象为一个 1000×1000 的网格。
+          - 严格使用 0-1000 坐标系。将图片想象为一个 1000×1000 的网格。
           - 第一步：找到对应的精确文字行。
           - 第二步：ymin 必须对齐大写字母的顶部，ymax 必须对齐下伸字母（如 'g' 或 'y'）的底部。
-          - 确保边框是对文字行的"紧密贴合"。
+          - 确保边框是对文字行的"紧密贴合"，避免多余边距。
        2. 锚点校准 (Anchor Calibration):
           - Y=0 是图片的绝对顶部边缘；Y=1000 是绝对底部。
           - 若文字位于 PDF 页面中部，请仔细估算其在整张图片中的相对位置。
        3. 多页逻辑 (Multi-page Logic):
-          - sourceFileIndex 从 0 开始计数。对于 3 页 PDF，第1页索引为 0，第2页为 1，以此类推。务必匹配准确。
+          - sourceFileIndex 必须与提供图片的实际顺序严格对应（从 0 开始）。对于 3 页 PDF，第1页索引为 0，第2页为 1，以此类推。
+       4. 跨行步骤 (Multi-line steps):
+          - 若某个步骤跨越多行文字，只为第一行提供 sourceBox，以保证定位精度。
        正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}` :
        `正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}`}
        ${hasImages ? "" : `\n       图解文本如下：\n       ${text}`}`
@@ -166,15 +168,17 @@ async function runGemini(
 
        ## VISUAL GROUNDING PROTOCOL
        1. Coordinate Precision:
-          - Imagine a 1000×1000 grid over the image.
+          - Strictly use a 0-1000 coordinate system. Imagine a 1000×1000 grid over the image.
           - Step 1: Find the exact line of text.
           - Step 2: ymin must be the very top of the capital letters; ymax must be the bottom of the descenders (like 'g' or 'y').
-          - Ensure the box is a "tight fit" for the text line.
+          - Ensure the box is a "tight fit" for the text line with no extra margin.
        2. Anchor Calibration:
           - Y=0 is the absolute top edge of the image; Y=1000 is the absolute bottom.
           - If the text is in the middle of a PDF page, estimate its relative position in the full image carefully.
        3. Multi-page Logic:
-          - sourceFileIndex is 0-indexed. For a 3-page PDF, index 0 is page 1, index 1 is page 2, etc. Match accurately.
+          - sourceFileIndex must correspond exactly to the 0-based order of the images provided. For a 3-page PDF, index 0 is page 1, index 1 is page 2, etc.
+       4. Multi-line steps:
+          - If a step spans multiple lines, only provide the sourceBox for the first line to maintain precision.
        Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}` :
        `Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}`}
        ${hasImages ? "" : `\n       Pattern:\n       ${text}`}`);

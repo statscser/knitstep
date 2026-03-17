@@ -92,6 +92,10 @@ export async function parsePatternAction(
        正确示例：{"steps":[{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
        如果原文本身已经是中文，则不需要 original 字段，只返回 text 字段即可。
+       ${imageBase64 ? `【视觉定位 — 必须执行】：
+       对每个步骤，添加 "sourceBox" 字段（归一化坐标数组 [ymin, xmin, ymax, xmax]，严格使用 0-1000 坐标系）和 "sourceFileIndex": 0。
+       视觉定位协议：1. 找到精确文字行；2. ymin 对齐大写字母顶部，ymax 对齐下伸字母底部；3. 边框紧密贴合，无多余边距；4. 若步骤跨越多行，只为第一行提供 sourceBox。
+       正确示例：{"steps":[{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}` : ''}
        ${imageBase64 ? '' : `\n       图解文本如下：\n       ${text}`}`
     : `You are a professional knitting pattern parser.
        ${imageBase64 ? 'Analyze this knitting pattern image and extract all instructions' : 'Parse the following knitting pattern text'} into clear, actionable checklist steps.
@@ -116,7 +120,10 @@ export async function parsePatternAction(
        Return a single JSON object where "steps" is a STRICTLY FLAT one-dimensional array.
        Each element may only contain "text" (string), optionally "original" (string), and optionally "sizeMap" (object).
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
-       Correct example: {"steps":[{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"}]}
+       ${imageBase64 ? `[VISUAL GROUNDING — REQUIRED]:
+       For every step, add "sourceBox": [ymin, xmin, ymax, xmax] (strictly 0-1000 coords) and "sourceFileIndex": 0.
+       Protocol: 1. Find the exact text line. 2. ymin = top of capitals, ymax = bottom of descenders (g/y). 3. Tight fit, no extra margin. 4. If a step spans multiple lines, only box the first line.
+       Correct example: {"steps":[{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}` : `Correct example: {"steps":[{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"}]}`}
        ${imageBase64 ? '' : `\n       Pattern:\n       ${text}`}`;
 
   const contents = imageBase64
