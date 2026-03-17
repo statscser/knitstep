@@ -17,7 +17,7 @@ interface Props {
  *   All coordinate-mapping infrastructure is preserved here.
  *   Flip HIGHLIGHT_ENABLED to true to re-enable once precision is acceptable.
  */
-const HIGHLIGHT_ENABLED = true;
+const HIGHLIGHT_ENABLED = false;
 
 export default function SourceHighlight({ sourceBox, isVisible }: Props) {
   if (!HIGHLIGHT_ENABLED || !isVisible || !sourceBox) return null;
