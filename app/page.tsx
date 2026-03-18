@@ -139,6 +139,8 @@ const dict = {
 // ─── Sample pattern ──────────────────────────────────────────────────────────
 
 const SAMPLE_PATTERN = `PATTERN
+Sizes: XS (S, M, L, XL)
+
 BRIM
 Cast 60 (68, 76, 84, 92) stitches onto circular needles. We used a basic Long Tail Cast On.
 
