@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Folder, X, Edit3, FileText } from "lucide-react";
+import { Folder, X, Edit3, FileText, Trash2 } from "lucide-react";
 import { db, type StoredFile } from "../lib/db";
 import { dict, isStoredFile, type Lang, type Project } from "../lib/types";
 
@@ -206,7 +206,7 @@ export default function ProjectGallery({
                               if (e.key === "Enter")  { e.preventDefault(); commitRename(); }
                               if (e.key === "Escape") { setEditingId(null); }
                             }}
-                            className="flex-1 text-xs font-semibold"
+                            className="flex-1 text-sm font-bold"
                             style={{
                               background: "transparent", border: "1px solid var(--morandi-pink)",
                               borderRadius: "0.3rem", padding: "1px 4px", outline: "none",
@@ -215,28 +215,21 @@ export default function ProjectGallery({
                           />
                         ) : (
                           <span
-                            className="flex-1 text-xs font-semibold truncate"
+                            className="flex-1 text-sm font-bold truncate"
                             style={{ color: "var(--text-main)" }}
                             title={project.name}
                           >
                             {project.name}
                           </span>
                         )}
-                        {/* Action buttons */}
-                        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {/* Rename button */}
+                        <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => startRename(project.id, project.name)}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", lineHeight: 0 }}
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: "3px", lineHeight: 0 }}
                             title={lang === "zh" ? "重命名" : "Rename"}
                           >
-                            <Edit3 size={11} strokeWidth={2} style={{ color: "var(--text-muted)" }} />
-                          </button>
-                          <button
-                            onClick={() => onDelete(project.id)}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", lineHeight: 0 }}
-                            aria-label="Delete"
-                          >
-                            <X size={11} strokeWidth={2.5} style={{ color: "var(--text-muted)" }} />
+                            <Edit3 size={14} strokeWidth={2} style={{ color: "var(--text-muted)" }} />
                           </button>
                         </div>
                       </div>
@@ -247,31 +240,50 @@ export default function ProjectGallery({
                       {/* Progress bar */}
                       {total > 0 && (
                         <div style={{ marginTop: "4px" }}>
+                          <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                            {lang === "zh" ? "进度" : "Progress"} {done}/{total}
+                          </p>
                           <div style={{
-                            width: "100%", height: "3px", borderRadius: "99px",
+                            width: "100%", height: "4px", borderRadius: "99px",
                             background: "var(--border)", overflow: "hidden",
                           }}>
                             <div style={{
                               width: `${pct}%`, height: "100%", borderRadius: "99px",
-                              background: isActive ? "var(--morandi-pink)" : "var(--morandi-green)",
+                              background: "var(--morandi-green)",
                               transition: "width 0.4s ease",
                             }} />
                           </div>
-                          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{done}/{total}</p>
                         </div>
                       )}
 
-                      {/* Active badge */}
-                      {isActive && (
-                        <span style={{
-                          alignSelf: "flex-start", marginTop: "2px",
-                          fontSize: "10px", fontWeight: 700, letterSpacing: "0.03em",
-                          color: "var(--morandi-pink)", background: "rgba(200,160,160,0.12)",
-                          borderRadius: "99px", padding: "1px 7px",
-                        }}>
-                          {lang === "zh" ? "当前" : "Active"}
-                        </span>
-                      )}
+                      {/* Active badge + delete */}
+                      <div className="flex items-center justify-between" style={{ marginTop: "4px" }}>
+                        {isActive ? (
+                          <span style={{
+                            fontSize: "10px", fontWeight: 700, letterSpacing: "0.03em",
+                            color: "var(--morandi-pink)", background: "rgba(200,160,160,0.12)",
+                            borderRadius: "99px", padding: "1px 7px",
+                          }}>
+                            {lang === "zh" ? "当前" : "Active"}
+                          </span>
+                        ) : <span />}
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => onDelete(project.id)}
+                            style={{
+                              background: "none", border: "1px solid var(--border)", cursor: "pointer",
+                              padding: "3px 7px", lineHeight: 0, borderRadius: "0.5rem",
+                              display: "flex", alignItems: "center", gap: "3px",
+                            }}
+                            aria-label="Delete"
+                          >
+                            <Trash2 size={11} strokeWidth={2} style={{ color: "var(--text-muted)" }} />
+                            <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                              {lang === "zh" ? "删除" : "Delete"}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 );
