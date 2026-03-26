@@ -19,6 +19,19 @@ export interface Step {
   sourceFileIndex?: number;                     // index into project's originalFiles array
 }
 
+export interface GridRow {
+  rowNumber: number;
+  type: string;
+  cells: string[];
+}
+
+export interface GridData {
+  totalRows: number;
+  totalStitches: number;
+  rows: GridRow[];
+  legend: Record<string, string>;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -29,6 +42,8 @@ export interface Project {
   originalFiles?: StoredFile[] | (Blob | File)[]; // v2: Blob/File (legacy); v3+: StoredFile[]
   availableSizes: string[];
   selectedSize: string;
+  type?: "instruction" | "grid";
+  gridData?: GridData;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────

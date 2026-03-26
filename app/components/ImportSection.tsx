@@ -38,6 +38,8 @@ export interface ImportSectionProps {
   setDragIndex: (i: number | null) => void;
   setDragOverIndex: (i: number | null) => void;
   setErrorMsg: (msg: string | null) => void;
+  isGridMode: boolean;
+  setIsGridMode: (v: boolean) => void;
 }
 
 export default function ImportSection({
@@ -73,6 +75,8 @@ export default function ImportSection({
   setDragIndex,
   setDragOverIndex,
   setErrorMsg,
+  isGridMode,
+  setIsGridMode,
 }: ImportSectionProps) {
   return (
     <div className="no-print w-full max-w-xl" style={{ marginBottom: isInputExpanded ? "1.5rem" : "0.5rem" }}>
@@ -288,7 +292,47 @@ export default function ImportSection({
               exit={{ opacity: 0, x: -14 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
-              {/* ── Photo / Video sub-tab toggle ── */}
+              {/* ── Checklist / Grid Chart mode toggle ── */}
+              <div
+                className="flex mb-4 rounded-xl p-0.5"
+                style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
+              >
+                {([
+                  { value: false, label: lang === "zh" ? "文字图解" : "Checklist",   sub: lang === "zh" ? "适用于说明文字、PDF、视频" : "Text, PDF, or Video" },
+                  { value: true,  label: lang === "zh" ? "编织格子图" : "Grid Chart", sub: lang === "zh" ? "专用于识别网格图片" : "Knitting grid images" },
+                ] as { value: boolean; label: string; sub: string }[]).map(({ value, label, sub }) => {
+                  const active = isGridMode === value;
+                  return (
+                    <button
+                      key={String(value)}
+                      onClick={() => {
+                        setIsGridMode(value);
+                        setUploadedImages([]);
+                        latestFilesRef.current = [];
+                        setVideoUrl("");
+                        setErrorMsg(null);
+                        if (value) setAiSubTab("photo"); // grid mode only supports photo
+                      }}
+                      className="flex-1 flex flex-col items-center py-2 rounded-lg transition-all duration-200"
+                      style={{
+                        background: active ? "var(--morandi-pink)" : "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span className="text-xs font-bold" style={{ color: active ? "#fff" : "var(--text-main)" }}>
+                        {label}
+                      </span>
+                      <span className="text-xs mt-0.5" style={{ color: active ? "rgba(255,255,255,0.75)" : "var(--text-muted)" }}>
+                        {sub}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Photo / Video sub-tab toggle (hidden in grid mode) ── */}
+              {!isGridMode && (
               <div className="flex gap-2 mb-4">
                 {(["photo", "video"] as const).map((sub) => {
                   const active = aiSubTab === sub;
@@ -310,6 +354,7 @@ export default function ImportSection({
                   );
                 })}
               </div>
+              )}
 
               <AnimatePresence mode="wait">
                 {/* ── Video sub-tab: YouTube URL only ── */}
@@ -492,8 +537,8 @@ export default function ImportSection({
                         </div>
                       ))}
 
-                      {/* "Add more" tile */}
-                      {uploadedImages.length < MAX_IMAGES && (
+                      {/* "Add more" tile — hidden in grid mode (1 image max) */}
+                      {!isGridMode && uploadedImages.length < MAX_IMAGES && (
                         <label
                           htmlFor="file-upload"
                           className="flex-shrink-0 flex items-center justify-center rounded-xl cursor-pointer"
@@ -534,8 +579,9 @@ export default function ImportSection({
                       e.currentTarget.style.borderColor = "var(--morandi-sage)";
                       e.currentTarget.style.background  = "var(--bg)";
                       const files = Array.from(e.dataTransfer.files ?? []);
+                      const limit = isGridMode ? 1 : MAX_IMAGES;
                       const startCount = uploadedImages.length;
-                      const available = MAX_IMAGES - startCount;
+                      const available = limit - startCount;
                       if (files.length > available) setErrorMsg(t.errorMaxImages);
                       for (let i = 0; i < Math.min(files.length, available); i++) {
                         await onFileUpload(files[i], startCount + i);
@@ -571,26 +617,30 @@ export default function ImportSection({
                         </motion.div>
                       </AnimatePresence>
                     </div>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      accept="image/*,application/pdf"
-                      multiple
-                      className="hidden"
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files ?? []);
-                        const startCount = uploadedImages.length;
-                        const available = MAX_IMAGES - startCount;
-                        if (files.length > available) setErrorMsg(t.errorMaxImages);
-                        for (let i = 0; i < Math.min(files.length, available); i++) {
-                          await onFileUpload(files[i], startCount + i);
-                        }
-                        e.target.value = "";
-                      }}
-                    />
                   </motion.label>
                 )}
               </AnimatePresence>}
+
+              {/* Always-present file input — keeps #file-upload in the DOM so
+                  both the drop zone label and the gallery "+" tile can trigger it */}
+              <input
+                id="file-upload"
+                type="file"
+                accept={isGridMode ? "image/*" : "image/*,application/pdf"}
+                multiple={!isGridMode}
+                className="hidden"
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  const limit = isGridMode ? 1 : MAX_IMAGES;
+                  const startCount = uploadedImages.length;
+                  const available = limit - startCount;
+                  if (files.length > available) setErrorMsg(t.errorMaxImages);
+                  for (let i = 0; i < Math.min(files.length, available); i++) {
+                    await onFileUpload(files[i], startCount + i);
+                  }
+                  e.target.value = "";
+                }}
+              />
 
               {/* Convert button — only shown after image(s) are selected */}
               <AnimatePresence>

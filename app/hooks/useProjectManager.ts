@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "../lib/db";
 import {
   isStoredFile, getAvailableSizes, fileToStoredFile,
-  type Step, type Project,
+  type Step, type Project, type GridData,
 } from "../lib/types";
 import type { StoredFile } from "../lib/db";
 
@@ -208,8 +208,8 @@ export function useProjectManager({
    * Raw File objects are serialised to StoredFile (base64) for iOS Safari
    * compatibility.  No-op if parsed contains no actionable steps.
    */
-  async function saveNewProject(parsed: Step[], files: File[], lang: string) {
-    if (parsed.filter((s) => !s.isHeader).length === 0) return;
+  async function saveNewProject(parsed: Step[], files: File[], lang: string, gridData?: GridData) {
+    if (parsed.filter((s) => !s.isHeader).length === 0 && !gridData) return;
 
     const now = Date.now();
     const d   = new Date(now);
@@ -231,6 +231,8 @@ export function useProjectManager({
       originalFiles:  storedFiles.length > 0 ? storedFiles : undefined,
       availableSizes: getAvailableSizes(parsed),
       selectedSize:   "all",
+      type:           gridData ? "grid" : "instruction",
+      gridData:       gridData,
     };
     setSelectedSize("all");
     try {

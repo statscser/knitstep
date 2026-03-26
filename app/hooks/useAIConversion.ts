@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { parseInput, ACCESS_CODE, type Lang, type Step } from "../lib/types";
+import { parseInput, ACCESS_CODE, type Lang, type Step, type GridData } from "../lib/types";
+import { MOCK_GRID_PROJECT_DATA } from "../lib/mockGridData";
+
+const USE_MOCK_MODE = process.env.NODE_ENV === "development";
 
 // ─── useAIConversion ──────────────────────────────────────────────────────────
 // Owns all AI / API-fetch logic and related loading/error state.
@@ -21,12 +24,13 @@ interface UseAIConversionOptions {
   inputText: string;
   uploadedImages: UploadedImage[];
   videoUrl: string;
+  isGridMode: boolean;
   /** Ref holding the raw File objects accumulated during this session. */
   latestFilesRef: React.MutableRefObject<File[]>;
   /** Called at the very start of a conversion so page.tsx can reset UI state. */
   onPreConvert: () => void;
-  /** Called with the parsed steps (and original files) on success. */
-  onSuccess: (parsed: Step[], files: File[]) => Promise<void>;
+  /** Called with the parsed steps (and original files) on success. Includes gridData when isGridMode is true. */
+  onSuccess: (parsed: Step[], files: File[], gridData?: GridData) => Promise<void>;
 }
 
 export function useAIConversion({
@@ -36,6 +40,7 @@ export function useAIConversion({
   inputText,
   uploadedImages,
   videoUrl,
+  isGridMode,
   latestFilesRef,
   onPreConvert,
   onSuccess,
@@ -78,6 +83,18 @@ export function useAIConversion({
     // Tell page.tsx to reset its UI state (steps, isEditMode, currentProjectId…)
     // before we start so the sync effect doesn't overwrite the active project.
     onPreConvert();
+
+    // ── Grid mode mock shortcut ────────────────────────────────────────────────
+    if (isGridMode && USE_MOCK_MODE) {
+      try {
+        await onSuccess([], filesToSave, MOCK_GRID_PROJECT_DATA);
+      } catch {
+        setError(t.errorUnknown);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
 
     try {
       // ── Step 1: Fetch from API ─────────────────────────────────────────────
@@ -138,7 +155,7 @@ export function useAIConversion({
       }
 
       // ── Step 2: Delegate to caller (persist project + update page state) ───
-      await onSuccess(parsed, filesToSave);
+      await onSuccess(parsed, filesToSave, undefined);
     } catch (err: any) {
       const msg = err?.message ?? "";
       if      (msg === "QUOTA_EXCEEDED")           setRateLimitSecondsLeft(30);

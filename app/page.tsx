@@ -11,6 +11,7 @@ import { useProjectManager } from "./hooks/useProjectManager";
 import { useAIConversion }   from "./hooks/useAIConversion";
 import ImportSection  from "./components/ImportSection";
 import ChecklistView  from "./components/ChecklistView";
+import GridView       from "./components/Viewer/GridView";
 import ProjectGallery from "./components/ProjectGallery";
 import ReferencePanel from "./components/ReferencePanel";
 import {
@@ -44,6 +45,7 @@ export default function Home() {
   const [activeMenuStepId, setActiveMenuStepId]     = useState<number | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
   const [isInputExpanded, setIsInputExpanded]       = useState(true);
+  const [isGridMode, setIsGridMode]       = useState(false);
   const [dragIndex, setDragIndex]         = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -62,6 +64,7 @@ export default function Home() {
     inputText,
     uploadedImages,
     videoUrl,
+    isGridMode,
     latestFilesRef,
     onPreConvert() {
       setIsEditMode(false);
@@ -71,10 +74,10 @@ export default function Home() {
       // Reset accumulated files if no images are queued
       if (uploadedImages.length === 0) latestFilesRef.current = [];
     },
-    async onSuccess(parsed, files) {
+    async onSuccess(parsed, files, gridData) {
       setSteps(parsed);
       setHasConverted(true);
-      await pm.saveNewProject(parsed, files, lang);
+      await pm.saveNewProject(parsed, files, lang, gridData);
     },
   });
 
@@ -545,7 +548,25 @@ export default function Home() {
         setDragIndex={setDragIndex}
         setDragOverIndex={setDragOverIndex}
         setErrorMsg={ai.setError}
+        isGridMode={isGridMode}
+        setIsGridMode={setIsGridMode}
       />
+
+      {/* ── Grid View (grid projects) ── */}
+      {(() => {
+        const activeProject = pm.currentProjectId
+          ? pm.projects.find((p) => p.id === pm.currentProjectId)
+          : null;
+        if (hasConverted && activeProject?.type === "grid" && activeProject.gridData) {
+          return (
+            <GridView
+              projectName={activeProject.name}
+              data={activeProject.gridData}
+            />
+          );
+        }
+        return null;
+      })()}
 
       {/* ── Checklist View ── */}
       <ChecklistView
