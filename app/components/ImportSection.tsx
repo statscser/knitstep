@@ -483,7 +483,7 @@ export default function ImportSection({
                             {i + 1}
                           </span>
                           <button
-                            onClick={(e) => { e.stopPropagation(); setUploadedImages((prev) => prev.filter((_, idx) => idx !== i)); }}
+                            onClick={(e) => { e.stopPropagation(); setUploadedImages((prev) => prev.filter((_, idx) => idx !== i)); latestFilesRef.current = latestFilesRef.current.filter((_, idx) => idx !== i); }}
                             className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold"
                             style={{ background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", cursor: "pointer", lineHeight: 0 }}
                           >

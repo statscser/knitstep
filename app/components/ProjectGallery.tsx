@@ -62,7 +62,18 @@ export default function ProjectGallery({
       if (!picked) continue;
       const isPdf = !firstImage;
       if (isStoredFile(picked)) {
-        urls[proj.id] = { url: `data:${picked.mimeType};base64,${picked.data}`, isPdf };
+        if (isPdf) {
+          // Chrome/Edge block data: URLs in iframes — convert to blob URL
+          const bytes = atob(picked.data);
+          const arr = new Uint8Array(bytes.length);
+          for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+          const blob = new Blob([arr], { type: picked.mimeType });
+          const url = URL.createObjectURL(blob);
+          blobUrls.push(url);
+          urls[proj.id] = { url, isPdf: true };
+        } else {
+          urls[proj.id] = { url: `data:${picked.mimeType};base64,${picked.data}`, isPdf: false };
+        }
       } else {
         const url = URL.createObjectURL(picked as Blob);
         blobUrls.push(url);
@@ -173,13 +184,14 @@ export default function ProjectGallery({
                       overflow: "hidden", flexShrink: 0, position: "relative",
                     }}>
                       {cover?.isPdf ? (
-                        /* Scaled-down iframe preview — works on desktop Chrome/Firefox */
+                        /* width: 300% scaled back by 0.333 = 100% of container width;
+                           height: 400% scaled back = container width > container height → crops top portion */
                         <iframe
                           src={cover.url + "#toolbar=0&navpanes=0&scrollbar=0"}
                           title="pdf-preview"
                           style={{
-                            width: "600px", height: "800px",
-                            transform: "scale(0.2)", transformOrigin: "top left",
+                            width: "300%", height: "400%",
+                            transform: "scale(0.333)", transformOrigin: "top left",
                             border: "none", pointerEvents: "none", position: "absolute",
                             top: 0, left: 0,
                           }}

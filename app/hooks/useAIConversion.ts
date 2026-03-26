@@ -69,15 +69,15 @@ export function useAIConversion({
     setError(null);
     setRateLimitSecondsLeft(null);
 
+    // Snapshot the files BEFORE onPreConvert can interfere.
+    // Use a defensive copy so later ref mutations don't corrupt this snapshot.
+    const filesToSave = activeTab === "ai" && latestFilesRef.current.length > 0
+      ? [...latestFilesRef.current]
+      : [];
+
     // Tell page.tsx to reset its UI state (steps, isEditMode, currentProjectId…)
     // before we start so the sync effect doesn't overwrite the active project.
     onPreConvert();
-
-    // Snapshot the files we're about to send — latestFilesRef is mutated during
-    // upload so we capture once here.
-    const filesToSave = activeTab === "ai" && uploadedImages.length > 0
-      ? latestFilesRef.current
-      : [];
 
     try {
       // ── Step 1: Fetch from API ─────────────────────────────────────────────
