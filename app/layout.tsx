@@ -40,8 +40,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh">
-      <body className={`${quicksand.variable} ${mPlusRounded.variable} antialiased`}>{children}</body>
+    <html lang="zh" suppressHydrationWarning>
+      <head>
+        {/* Prevent iOS Safari from auto-detecting phone numbers / dates in text,
+            which inserts <a> elements into the DOM that React never rendered,
+            causing tree hydration errors on mobile. */}
+        <meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
+      </head>
+      <body className={`${quicksand.variable} ${mPlusRounded.variable} antialiased`} suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
