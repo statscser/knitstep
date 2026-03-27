@@ -9,6 +9,7 @@ import type { GridData } from "../../lib/types";
 interface GridViewProps {
   projectName: string;
   data: GridData;
+  onProgressUpdate: (row: number) => void;
 }
 
 // Canvas layout constants
@@ -24,14 +25,20 @@ const C_LINE          = "#E0D4CA"; // var(--border)
 const C_TEXT          = "#3D3530"; // var(--text-main)
 const C_MUTED         = "#9C8C7C"; // slightly darker than --text-muted for legibility
 const C_WS_FILL       = "rgba(192,175,166,0.13)"; // subtle tint on WS rows
-const C_ACTIVE_FILL   = "rgba(143,175,150,0.28)"; // morandi-green tint
+const C_ACTIVE_FILL   = "rgba(143,175,150,0.28)"; // morandi-green tint for current row
 const C_ACTIVE_BORDER = "#8FAF96"; // var(--morandi-green)
+const C_DONE_OVERLAY  = "rgba(0,0,0,0.06)";       // dim completed rows
 
-export default function GridView({ projectName, data }: GridViewProps) {
+export default function GridView({ projectName, data, onProgressUpdate }: GridViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
 
-  const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
+  const { rows, totalRows, totalStitches, legend } = data;
+
+  // currentRow: 1-based row number tracking knitting progress
+  const [currentRow, setCurrentRow] = useState(() =>
+    Math.max(1, Math.min(totalRows, data.currentRow ?? 1))
+  );
   const [transform, setTransform]   = useState({ scale: 1, ox: 0, oy: 0 });
   const [isDragging, setIsDragging] = useState(false);
 
@@ -48,19 +55,39 @@ export default function GridView({ projectName, data }: GridViewProps) {
   const lastMousePos = useRef<{ x: number; y: number } | null>(null);
   const mouseDragged = useRef(false);
 
-  const { rows, totalRows, totalStitches, legend } = data;
-
-  // Reset view when the project changes
+  // ── Reset + auto-scroll when project changes ───────────────────────────────
   useEffect(() => {
+    const newRow = Math.max(1, Math.min(totalRows, data.currentRow ?? 1));
+    setCurrentRow(newRow);
+
+    // Reset zoom/pan
     scaleRef.current = 1;
     oxRef.current    = 0;
     oyRef.current    = 0;
     setTransform({ scale: 1, ox: 0, oy: 0 });
-    setActiveRowIndex(null);
+
+    // Scroll the page so currentRow is centred in the viewport
+    requestAnimationFrame(() => {
+      const canvas    = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+      const cssW     = container.clientWidth;
+      const cellSide = Math.max(22, Math.floor((cssW - LEFT_MARGIN) / totalStitches));
+      const dataIdx  = rows.findIndex((r) => r.rowNumber === newRow);
+      if (dataIdx < 0) return;
+      const canvasRow = totalRows - 1 - dataIdx;
+      const rowY      = canvasRow * cellSide; // top of row in canvas content-space (scale=1)
+      const canvasTop = canvas.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({
+        top:      Math.max(0, canvasTop + rowY - window.innerHeight / 2 + cellSide / 2),
+        behavior: "smooth",
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // Always-current tap handler stored in a ref so the touch listener (attached
-  // once with [] deps) never holds a stale closure over totalStitches / totalRows.
+  // Always-current tap handler in a ref — the touch listener ([] deps) never
+  // captures stale closures over totalStitches / totalRows / currentRow.
   const handleTapAtRef = useRef<(cx: number, cy: number) => void>(() => {});
   handleTapAtRef.current = (canvasX: number, canvasY: number) => {
     const container = containerRef.current;
@@ -68,12 +95,15 @@ export default function GridView({ projectName, data }: GridViewProps) {
     // Inverse transform: canvas px → content px
     const contentX  = (canvasX - oxRef.current) / scaleRef.current;
     const contentY  = (canvasY - oyRef.current) / scaleRef.current;
-    if (contentX < LEFT_MARGIN) return; // row-label area
+    if (contentX < LEFT_MARGIN) return; // row-label area — ignore
     const cellSide  = Math.max(22, Math.floor((container.clientWidth - LEFT_MARGIN) / totalStitches));
     const canvasRow = Math.floor(contentY / cellSide);
     if (canvasRow < 0 || canvasRow >= totalRows) return;
     const dataIdx = totalRows - 1 - canvasRow;
-    setActiveRowIndex(prev => prev === dataIdx ? null : dataIdx);
+    const rowNum  = rows[dataIdx]?.rowNumber;
+    if (rowNum === undefined) return;
+    setCurrentRow(rowNum);
+    onProgressUpdate(rowNum);
   };
 
   // ── Core draw function ─────────────────────────────────────────────────────
@@ -90,7 +120,6 @@ export default function GridView({ projectName, data }: GridViewProps) {
     const gridH    = cellSide * totalRows;
     const cssH     = gridH + BOTTOM_MARGIN;
 
-    // Resize canvas backing store to match current container width
     canvas.width        = Math.round(cssW * dpr);
     canvas.height       = Math.round(cssH * dpr);
     canvas.style.width  = `${cssW}px`;
@@ -100,7 +129,7 @@ export default function GridView({ projectName, data }: GridViewProps) {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    // Apply zoom / pan on top of the DPR scale
+    // Apply zoom / pan on top of DPR scale
     ctx.save();
     ctx.translate(transform.ox, transform.oy);
     ctx.scale(transform.scale, transform.scale);
@@ -111,22 +140,27 @@ export default function GridView({ projectName, data }: GridViewProps) {
       const canvasRow = totalRows - 1 - dataIdx;
       const y         = canvasRow * cellSide;
 
+      // WS row background tint
       if (row.type === "WS") {
         ctx.fillStyle = C_WS_FILL;
         ctx.fillRect(LEFT_MARGIN, y, gridW, cellSide);
       }
-      if (activeRowIndex === dataIdx) {
+
+      // Current row: green highlight background
+      if (row.rowNumber === currentRow) {
         ctx.fillStyle = C_ACTIVE_FILL;
         ctx.fillRect(LEFT_MARGIN, y, gridW, cellSide);
       }
 
+      // Row number label (right-aligned inside left margin)
       const labelSize  = Math.max(9, Math.round(cellSide * 0.38));
       ctx.font         = `600 ${labelSize}px system-ui, sans-serif`;
-      ctx.fillStyle    = activeRowIndex === dataIdx ? C_ACTIVE_BORDER : C_MUTED;
+      ctx.fillStyle    = row.rowNumber === currentRow ? C_ACTIVE_BORDER : C_MUTED;
       ctx.textAlign    = "right";
       ctx.textBaseline = "middle";
       ctx.fillText(String(row.rowNumber), LEFT_MARGIN - 5, y + cellSide / 2);
 
+      // Cells
       row.cells.forEach((symbol, colIdx) => {
         const x = LEFT_MARGIN + colIdx * cellSide;
         ctx.strokeStyle = C_LINE;
@@ -141,11 +175,19 @@ export default function GridView({ projectName, data }: GridViewProps) {
           ctx.fillText(symbol, x + cellSide / 2, y + cellSide / 2 + 1);
         }
       });
+
+      // Completed-row shadow overlay (drawn over cell content to dim it)
+      // Rows with a lower row number are "done" — they sit below currentRow.
+      if (row.rowNumber < currentRow) {
+        ctx.fillStyle = C_DONE_OVERLAY;
+        ctx.fillRect(0, y, LEFT_MARGIN + gridW, cellSide);
+      }
     });
 
-    // Active row strong border (drawn on top of everything)
-    if (activeRowIndex !== null) {
-      const canvasRow = totalRows - 1 - activeRowIndex;
+    // Current row strong border (drawn last so it's always on top)
+    const activeDataIdx = rows.findIndex((r) => r.rowNumber === currentRow);
+    if (activeDataIdx >= 0) {
+      const canvasRow = totalRows - 1 - activeDataIdx;
       const y         = canvasRow * cellSide;
       ctx.strokeStyle = C_ACTIVE_BORDER;
       ctx.lineWidth   = 2.5;
@@ -164,12 +206,12 @@ export default function GridView({ projectName, data }: GridViewProps) {
     }
 
     ctx.restore();
-  }, [rows, totalRows, totalStitches, activeRowIndex, transform]);
+  }, [rows, totalRows, totalStitches, currentRow, transform]);
 
-  // Redraw when data, active row, or transform changes
+  // Redraw when data, currentRow, or transform changes
   useEffect(() => { draw(); }, [draw]);
 
-  // Redraw on container resize (orientation changes, window resize)
+  // Redraw on container resize
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -179,8 +221,7 @@ export default function GridView({ projectName, data }: GridViewProps) {
   }, [draw]);
 
   // ── Touch + wheel listeners ────────────────────────────────────────────────
-  // Attached imperatively (not via React props) so we can use { passive: false }
-  // and call e.preventDefault() to block browser scroll/pinch-zoom.
+  // Attached imperatively so we can use { passive: false } and call preventDefault.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -193,12 +234,7 @@ export default function GridView({ projectName, data }: GridViewProps) {
 
     function onTouchStart(e: TouchEvent) {
       if (e.touches.length === 1) {
-        touchRef.current = {
-          type: "pan",
-          lastX: e.touches[0].clientX,
-          lastY: e.touches[0].clientY,
-          lastDist: 0,
-        };
+        touchRef.current = { type: "pan", lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, lastDist: 0 };
         touchMoved.current = false;
       } else if (e.touches.length === 2) {
         touchRef.current = {
@@ -207,12 +243,12 @@ export default function GridView({ projectName, data }: GridViewProps) {
           lastY:    (e.touches[0].clientY + e.touches[1].clientY) / 2,
           lastDist: touchDist(e.touches),
         };
-        touchMoved.current = true; // pinch can never become a tap
+        touchMoved.current = true;
       }
     }
 
     function onTouchMove(e: TouchEvent) {
-      e.preventDefault(); // block page scroll / browser zoom
+      e.preventDefault();
       if (!touchRef.current) return;
 
       if (touchRef.current.type === "pan" && e.touches.length === 1) {
@@ -230,28 +266,19 @@ export default function GridView({ projectName, data }: GridViewProps) {
         const midX     = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const midY     = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         const rect     = canvas!.getBoundingClientRect();
-        const cx       = midX - rect.left; // midpoint in canvas CSS px
+        const cx       = midX - rect.left;
         const cy       = midY - rect.top;
-
         const ratio    = newDist / touchRef.current.lastDist;
         const prevScl  = scaleRef.current;
         const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prevScl * ratio));
-
-        // Zoom relative to midpoint: the content point under the midpoint stays fixed
         const contentX = (cx - oxRef.current) / prevScl;
         const contentY = (cy - oyRef.current) / prevScl;
-        let newOx = cx - contentX * newScale;
-        let newOy = cy - contentY * newScale;
-
-        // Also apply midpoint translation (two-finger pan during pinch)
-        newOx += midX - touchRef.current.lastX;
-        newOy += midY - touchRef.current.lastY;
-
+        let newOx      = cx - contentX * newScale + (midX - touchRef.current.lastX);
+        let newOy      = cy - contentY * newScale + (midY - touchRef.current.lastY);
         scaleRef.current = newScale;
         oxRef.current    = newOx;
         oyRef.current    = newOy;
         setTransform({ scale: newScale, ox: newOx, oy: newOy });
-
         touchRef.current.lastDist = newDist;
         touchRef.current.lastX    = midX;
         touchRef.current.lastY    = midY;
@@ -259,7 +286,6 @@ export default function GridView({ projectName, data }: GridViewProps) {
     }
 
     function onTouchEnd(e: TouchEvent) {
-      // Treat a non-moved single-finger lift as a tap → row selection
       if (!touchMoved.current && e.changedTouches.length === 1) {
         const rect = canvas!.getBoundingClientRect();
         handleTapAtRef.current(
@@ -290,7 +316,6 @@ export default function GridView({ projectName, data }: GridViewProps) {
     canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
     canvas.addEventListener("touchend",   onTouchEnd,   { passive: true });
     canvas.addEventListener("wheel",      onWheel,      { passive: false });
-
     return () => {
       canvas.removeEventListener("touchstart", onTouchStart);
       canvas.removeEventListener("touchmove",  onTouchMove);
@@ -299,13 +324,12 @@ export default function GridView({ projectName, data }: GridViewProps) {
     };
   }, []); // no React deps — reads/writes go through stable refs; setTransform is stable
 
-  // ── Mouse handlers (drag to pan, click to select row) ─────────────────────
+  // ── Mouse handlers ─────────────────────────────────────────────────────────
   function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
     lastMousePos.current = { x: e.clientX, y: e.clientY };
     mouseDragged.current = false;
     setIsDragging(true);
   }
-
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!lastMousePos.current) return;
     const dx = e.clientX - lastMousePos.current.x;
@@ -316,38 +340,53 @@ export default function GridView({ projectName, data }: GridViewProps) {
     setTransform({ scale: scaleRef.current, ox: oxRef.current, oy: oyRef.current });
     lastMousePos.current = { x: e.clientX, y: e.clientY };
   }
-
-  function handleMouseUp() {
-    lastMousePos.current = null;
-    setIsDragging(false);
-  }
-
-  function handleMouseLeave() {
-    lastMousePos.current = null;
-    setIsDragging(false);
-  }
-
+  function handleMouseUp()    { lastMousePos.current = null; setIsDragging(false); }
+  function handleMouseLeave() { lastMousePos.current = null; setIsDragging(false); }
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (mouseDragged.current) return; // suppress click after a drag
+    if (mouseDragged.current) return;
     const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
     handleTapAtRef.current(e.clientX - rect.left, e.clientY - rect.top);
   }
 
   // ── Reset view ─────────────────────────────────────────────────────────────
   function resetView() {
-    scaleRef.current = 1;
-    oxRef.current    = 0;
-    oyRef.current    = 0;
+    scaleRef.current = 1; oxRef.current = 0; oyRef.current = 0;
     setTransform({ scale: 1, ox: 0, oy: 0 });
   }
 
-  const isTransformed = transform.scale !== 1 || transform.ox !== 0 || transform.oy !== 0;
-  const activeRow     = activeRowIndex !== null ? rows[activeRowIndex] : null;
+  // ── Derived display values ─────────────────────────────────────────────────
+  const isTransformed  = transform.scale !== 1 || transform.ox !== 0 || transform.oy !== 0;
+  const pct            = Math.round((currentRow / totalRows) * 100);
+  const activeRowData  = rows.find((r) => r.rowNumber === currentRow) ?? null;
 
   return (
     <div className="w-full max-w-xl flex flex-col gap-3">
 
-      {/* Canvas wrapper — overflow:hidden clips zoomed-out / panned content */}
+      {/* Progress header */}
+      <div
+        className="flex items-center justify-between px-4 py-2 rounded-2xl text-xs"
+        style={{ background: "var(--bg-card)", border: "1.5px solid var(--border)", color: C_MUTED }}
+      >
+        <span>
+          <span style={{ fontWeight: 700, color: C_TEXT }}>Row {currentRow}</span>
+          {" / "}{totalRows}
+        </span>
+        {/* Progress bar */}
+        <div style={{ flex: 1, margin: "0 12px", height: 5, borderRadius: 99, background: "var(--border)", overflow: "hidden" }}>
+          <div
+            style={{
+              height:       "100%",
+              width:        `${pct}%`,
+              borderRadius: 99,
+              background:   C_ACTIVE_BORDER,
+              transition:   "width 0.25s ease",
+            }}
+          />
+        </div>
+        <span style={{ fontWeight: 600, color: C_ACTIVE_BORDER }}>{pct}%</span>
+      </div>
+
+      {/* Canvas wrapper — overflow:hidden clips zoomed content */}
       <div
         ref={containerRef}
         className="w-full rounded-2xl overflow-hidden"
@@ -360,36 +399,26 @@ export default function GridView({ projectName, data }: GridViewProps) {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
           onClick={handleClick}
-          style={{
-            cursor:      isDragging ? "grabbing" : "grab",
-            display:     "block",
-            touchAction: "none", // let our handlers own all touch gestures
-          }}
-          aria-label={`${projectName} knitting chart — pinch or scroll to zoom, drag to pan, tap a row to highlight`}
+          style={{ cursor: isDragging ? "grabbing" : "grab", display: "block", touchAction: "none" }}
+          aria-label={`${projectName} knitting chart — tap a row to mark progress, pinch/scroll to zoom, drag to pan`}
         />
 
-        {/* Reset-view button — only visible when the view has been transformed */}
+        {/* Reset-view button */}
         {isTransformed && (
           <button
             onClick={resetView}
             title="Reset view"
             aria-label="Reset view"
             style={{
-              position:       "absolute",
-              top:            8,
-              right:          8,
-              width:          30,
-              height:         30,
-              borderRadius:   "50%",
-              background:     "rgba(255,255,255,0.88)",
-              border:         `1px solid ${C_LINE}`,
-              cursor:         "pointer",
-              display:        "flex",
-              alignItems:     "center",
-              justifyContent: "center",
-              color:          C_MUTED,
+              position: "absolute", top: 8, right: 8,
+              width: 30, height: 30, borderRadius: "50%",
+              background: "rgba(255,255,255,0.88)",
+              border: `1px solid ${C_LINE}`,
+              cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: C_MUTED,
               backdropFilter: "blur(4px)",
-              boxShadow:      "0 1px 4px rgba(0,0,0,0.10)",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.10)",
             }}
           >
             <Maximize2 size={14} />
@@ -397,38 +426,37 @@ export default function GridView({ projectName, data }: GridViewProps) {
         )}
       </div>
 
-      {/* Active-row info pill */}
+      {/* Current-row info pill */}
       <div style={{ minHeight: "2.25rem" }}>
-        {activeRow ? (
+        {activeRowData ? (
           <div
             className="flex items-center gap-2 px-4 py-2 rounded-2xl text-sm"
-            style={{
-              background: "rgba(143,175,150,0.12)",
-              border: `1.5px solid ${C_ACTIVE_BORDER}`,
-              color: C_TEXT,
-            }}
+            style={{ background: "rgba(143,175,150,0.12)", border: `1.5px solid ${C_ACTIVE_BORDER}`, color: C_TEXT }}
           >
-            <span style={{ fontWeight: 700 }}>Row {activeRow.rowNumber}</span>
+            <span style={{ fontWeight: 700 }}>Row {activeRowData.rowNumber}</span>
             <span
               className="px-1.5 py-0.5 rounded-md text-xs font-semibold"
               style={{ background: C_ACTIVE_BORDER, color: "#fff" }}
             >
-              {activeRow.type}
+              {activeRowData.type}
             </span>
             <span style={{ color: C_MUTED, fontSize: "0.75rem" }}>
-              {activeRow.cells.filter(Boolean).join("  ") || "knit / purl"}
+              {activeRowData.cells.filter(Boolean).join("  ") || "knit / purl"}
             </span>
-            <button
-              onClick={() => setActiveRowIndex(null)}
-              style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: C_MUTED, lineHeight: 0, padding: "2px" }}
-              aria-label="Deselect row"
-            >
-              ✕
-            </button>
+            {currentRow > 1 && (
+              <button
+                onClick={() => { setCurrentRow(1); onProgressUpdate(1); }}
+                style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: C_MUTED, lineHeight: 0, padding: "2px" }}
+                aria-label="Reset to row 1"
+                title="Reset to row 1"
+              >
+                ✕
+              </button>
+            )}
           </div>
         ) : (
           <p className="text-xs px-1" style={{ color: C_MUTED }}>
-            Tap a row to highlight · Pinch or scroll to zoom · Drag to pan
+            Tap a row to mark progress · Pinch or scroll to zoom · Drag to pan
           </p>
         )}
       </div>
@@ -446,14 +474,7 @@ export default function GridView({ projectName, data }: GridViewProps) {
             <span key={sym || "__plain"} className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
               <span
                 className="inline-flex items-center justify-center rounded-md flex-shrink-0"
-                style={{
-                  width: 24, height: 24,
-                  border: `1px solid ${C_LINE}`,
-                  background: "var(--bg)",
-                  color: C_TEXT,
-                  fontSize: 14,
-                  fontFamily: "system-ui, sans-serif",
-                }}
+                style={{ width: 24, height: 24, border: `1px solid ${C_LINE}`, background: "var(--bg)", color: C_TEXT, fontSize: 14, fontFamily: "system-ui, sans-serif" }}
               >
                 {sym || "□"}
               </span>

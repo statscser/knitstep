@@ -274,6 +274,22 @@ export function useProjectManager({
       .catch((err) => console.error("[KnitStep] Failed to rename project:", err));
   }
 
+  /** Persist the current knitting row for a grid project. */
+  function updateGridProgress(id: string, currentRow: number) {
+    const proj = projects.find((p) => p.id === id);
+    if (!proj?.gridData) return;
+    const now        = Date.now();
+    const newGridData = { ...proj.gridData, currentRow };
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id ? { ...p, gridData: newGridData, lastUpdated: now } : p
+      )
+    );
+    db.projects
+      .update(id, { gridData: newGridData, lastUpdated: now })
+      .catch((err) => console.error("[KnitStep] Failed to update grid progress:", err));
+  }
+
   return {
     // State
     projects, setProjects,
@@ -293,5 +309,6 @@ export function useProjectManager({
     handleLoadProject,
     handleDeleteProject,
     handleRenameProject,
+    updateGridProgress,
   };
 }

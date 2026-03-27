@@ -30,6 +30,7 @@ export interface GridData {
   totalStitches: number;
   rows: GridRow[];
   legend: Record<string, string>;
+  currentRow?: number; // 1-based; persisted as knitting progress
 }
 
 export interface Project {

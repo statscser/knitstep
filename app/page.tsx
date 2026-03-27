@@ -564,6 +564,7 @@ export default function Home() {
             <GridView
               projectName={activeProject!.name}
               data={activeProject!.gridData!}
+              onProgressUpdate={(row) => pm.updateGridProgress(activeProject!.id, row)}
             />
           );
         }
