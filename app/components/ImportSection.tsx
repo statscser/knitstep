@@ -298,7 +298,7 @@ export default function ImportSection({
                 style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
               >
                 {([
-                  { value: false, label: lang === "zh" ? "文字图解" : "Checklist",   sub: lang === "zh" ? "适用于说明文字、PDF、视频" : "Text, PDF, or Video" },
+                  { value: false, label: lang === "zh" ? "文字图解" : "Checklist",   sub: lang === "zh" ? "适用于文字图片、PDF、视频" : "Text images, PDF, or Video" },
                   { value: true,  label: lang === "zh" ? "编织格子图" : "Grid Chart", sub: lang === "zh" ? "专用于识别网格图片" : "Knitting grid images" },
                 ] as { value: boolean; label: string; sub: string }[]).map(({ value, label, sub }) => {
                   const active = isGridMode === value;
