@@ -1,16 +1,120 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { MOCK_GRID_PROJECT_DATA } from "../../lib/mockGridData";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 const MODELS_TO_TRY = [
+  "gemini-3.1-flash-lite-preview",  // Development mode
   "gemini-2.5-flash",
   "gemini-3-flash-preview",
   "gemini-3.1-flash-lite-preview",
   "gemini-2.5-flash-lite",
 ] as const;
 
+
 let inFlight = false;
+
+// ─── Grid types (mirrored from lib/types to keep this route self-contained) ──
+interface GridRow   { rowNumber: number; type: "RS" | "WS"; cells: string[]; }
+interface GridData  { totalRows: number; totalStitches: number; rows: GridRow[]; legend: Record<string, string>; }
+
+function validateGridData(obj: any): obj is GridData {
+  return (
+    obj !== null &&
+    typeof obj === "object" &&
+    typeof obj.totalRows    === "number" && obj.totalRows    > 0 &&
+    typeof obj.totalStitches === "number" && obj.totalStitches > 0 &&
+    Array.isArray(obj.rows) && obj.rows.length > 0 &&
+    typeof obj.legend === "object" && obj.legend !== null
+  );
+}
+
+// Few-shot example built from the real diamond mock — correct escaping guaranteed
+const GRID_FEW_SHOT = JSON.stringify({ type: "grid", data: MOCK_GRID_PROJECT_DATA });
+
+const GRID_SYSTEM_PROMPT = `You are a professional knitting chart expert (编织图解专家). \
+Your task is to convert a KNITTING GRID CHART image into structured JSON data.
+
+Please parse this image as a KNITTING GRID CHART. Focus on the grid structure and the symbol legend.
+
+### Requirements:
+1. **Identify Legend (符号表)**: Extract all symbols (○, \\, /, blank square, etc.) and their stitch descriptions from any legend visible in the image.
+2. **Count accurately**: totalRows = number of horizontal rows in the grid; totalStitches = number of columns.
+3. **Parse row by row**: Row 1 is at the BOTTOM of the chart. Work upward row by row. Read cells left-to-right unless the chart marks RS rows right-to-left.
+4. **Empty / plain knit cells**: Use "" (empty string) for blank or plain-knit squares.
+
+### Output format — return ONLY valid JSON, no markdown fences, no explanation:
+{"type":"grid","data":{"totalRows":<n>,"totalStitches":<n>,"rows":[{"rowNumber":1,"type":"RS","cells":["sym",...]},...],"legend":{"<symbol>":"<description>",...}}}
+
+### Few-shot example:
+If the image is a 12-row × 11-stitch diamond lace chart, the correct output is:
+${GRID_FEW_SHOT}
+
+CRITICAL: Return ONLY the JSON object. No markdown. No explanation.`;
+
+async function runGeminiGrid(
+  images: { base64: string; mimeType: string }[],
+): Promise<GridData> {
+  let lastError: any = null;
+
+  for (let i = 0; i < MODELS_TO_TRY.length; i++) {
+    const modelName = MODELS_TO_TRY[i];
+    const model     = genAI.getGenerativeModel({ model: modelName });
+
+    // Up to 2 attempts per model: first clean, second with error context
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const retryNote = attempt > 0
+        ? `\n\nPREVIOUS ATTEMPT FAILED: ${lastError?.message ?? "invalid JSON"}. Ensure your response is valid JSON matching the required schema exactly.`
+        : "";
+
+      const contents = [
+        ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
+        GRID_SYSTEM_PROMPT + retryNote,
+      ];
+
+      console.log(`[GridAI] model=${modelName} attempt=${attempt + 1}`);
+      try {
+        const result = await model.generateContent(contents);
+        const raw    = result.response.text().trim();
+        console.log(`[GridAI] snippet: ${raw.slice(0, 120)}`);
+
+        // Strip markdown fences if the model added them despite instructions
+        const cleaned   = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+        const jsonStart = cleaned.indexOf("{");
+        const jsonEnd   = cleaned.lastIndexOf("}");
+        if (jsonStart === -1 || jsonEnd === -1) throw new Error("No JSON found in response");
+
+        const parsed   = JSON.parse(cleaned.slice(jsonStart, jsonEnd + 1));
+        // Accept both { type:"grid", data:{...} } and bare GridData objects
+        const gridData = parsed.type === "grid" ? parsed.data : (parsed.data ?? parsed);
+
+        if (!validateGridData(gridData)) {
+          throw new Error(
+            `GRID_INVALID_SHAPE — got keys: [${Object.keys(gridData ?? {}).join(", ")}]`,
+          );
+        }
+        return gridData;
+
+      } catch (err: any) {
+        lastError       = err;
+        const status    = err.status ?? err.response?.status ?? "unknown";
+        const msgLower  = (err.message ?? "").toLowerCase();
+
+        if (status === 413 || msgLower.includes("too large"))            throw new Error("FILE_TOO_LARGE");
+        if (status === 429 || msgLower.includes("429")) { console.warn(`[GridAI] ${modelName} → 429`); break; }
+        if (status === 404 || msgLower.includes("404")) { console.warn(`[GridAI] ${modelName} → 404`); break; }
+
+        // Parse/shape error: retry this model once, then move to the next
+        console.warn(`[GridAI] ${modelName} attempt ${attempt + 1} failed: ${err.message}`);
+      }
+    }
+  }
+
+  const msg        = lastError?.message ?? "All models failed";
+  const wasRateLimit = (lastError?.status ?? lastError?.response?.status) === 429 || msg.includes("429");
+  throw new Error(wasRateLimit ? "QUOTA_EXCEEDED" : "GRID_PARSE_FAILED");
+}
 
 type ParsedStep = {
   text: string;
@@ -265,16 +369,25 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, language, images, accessCode } = body as {
+    const { text, language, images, accessCode, isGridMode } = body as {
       text: string;
       language: "zh" | "en";
       images?: { base64: string; mimeType: string }[];
       accessCode?: string;
+      isGridMode?: boolean;
     };
 
     const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
     if (accessCode !== VALID_CODE) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    }
+
+    if (isGridMode) {
+      if (!images || images.length === 0) {
+        return NextResponse.json({ error: "GRID_NO_IMAGE" }, { status: 400 });
+      }
+      const gridData = await runGeminiGrid(images);
+      return NextResponse.json({ type: "grid", data: gridData });
     }
 
     const steps = await runGemini(text, language, images);

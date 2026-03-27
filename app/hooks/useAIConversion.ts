@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { parseInput, ACCESS_CODE, type Lang, type Step, type GridData } from "../lib/types";
 import { MOCK_GRID_PROJECT_DATA } from "../lib/mockGridData";
 
-const USE_MOCK_MODE = process.env.NODE_ENV === "development";
+// set true for mock and false for real API
+const USE_MOCK_GRID = false;
 
 // ─── useAIConversion ──────────────────────────────────────────────────────────
 // Owns all AI / API-fetch logic and related loading/error state.
@@ -66,6 +67,7 @@ export function useAIConversion({
     errorKey:          lang === "zh" ? "API 密钥缺失" : "API key missing.",
     errorModel:        lang === "zh" ? "模型暂时不可用" : "Model temporarily unavailable.",
     errorVideoFailed:  lang === "zh" ? "视频处理失败，请换个视频试试" : "Video processing failed. Please try another video.",
+    errorGridFailed:   lang === "zh" ? "AI 无法准确识别此格子，请确保图片清晰且包含符号表" : "AI could not parse this grid chart. Please ensure the image is clear and includes a symbol legend.",
     errorUnknown:      lang === "zh" ? "解析失败，请稍后再试" : "Parsing failed. Please try again.",
   } as const;
 
@@ -85,7 +87,7 @@ export function useAIConversion({
     onPreConvert();
 
     // ── Grid mode mock shortcut ────────────────────────────────────────────────
-    if (isGridMode && USE_MOCK_MODE) {
+    if (isGridMode && USE_MOCK_GRID) {
       try {
         await onSuccess([], filesToSave, MOCK_GRID_PROJECT_DATA);
       } catch {
@@ -115,6 +117,7 @@ export function useAIConversion({
                   language: lang,
                   images: uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType })),
                   accessCode: ACCESS_CODE,
+                  isGridMode,
                 }
               : { text: inputText, language: lang, accessCode: ACCESS_CODE };
           res = await fetch("/api/parse", {
@@ -126,6 +129,12 @@ export function useAIConversion({
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
+
+        // Grid mode: API returns { type:"grid", data: GridData }
+        if (isGridMode && data.type === "grid") {
+          await onSuccess([], filesToSave, data.data);
+          return;
+        }
 
         // Preserve sizeMap / sourceBox so Smart Sizing & visual grounding work
         const base = Date.now();
@@ -166,6 +175,10 @@ export function useAIConversion({
         msg === "VIDEO_PROCESSING_FAILED" ||
         msg === "NO_TEXT_EXTRACTED"
       )                                            setError(t.errorVideoFailed);
+      else if (
+        msg === "GRID_PARSE_FAILED" ||
+        msg === "GRID_NO_IMAGE"
+      )                                            setError(t.errorGridFailed);
       else                                         setError(t.errorUnknown);
     } finally {
       setIsLoading(false);
