@@ -15,7 +15,7 @@ export const MOCK_GRID_PROJECT_DATA: GridData = {
     { rowNumber: 6,  type: "WS", cells: ["",  "",  "",   "",   "",   "",   "",   "",   "",   "",  ""]  },
     { rowNumber: 7,  type: "RS", cells: ["",  "",  "",   "\\", "○",  "",   "",   "",   "",   "",  ""]  },
     { rowNumber: 8,  type: "WS", cells: ["",  "",  "",   "",   "",   "",   "",   "",   "",   "",  ""]  },
-    { rowNumber: 9,  type: "RS", cells: ["",  "",  "\\", "○",  "",   "",   "○",  "/",  "",   "",  ""]  },
+    { rowNumber: 9,  type: "RS", cells: ["",  "",  "\\", "○",  "",   "○",  "/",  "",   "",   "",  ""]  },
     { rowNumber: 10, type: "WS", cells: ["",  "",  "",   "",   "",   "",   "",   "",   "",   "",  ""]  },
     { rowNumber: 11, type: "RS", cells: ["",  "",  "",   "\\", "○",  "",   "",   "",   "",   "",  ""]  },
     { rowNumber: 12, type: "WS", cells: ["",  "",  "",   "",   "",   "",   "",   "",   "",   "",  ""]  },

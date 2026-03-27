@@ -77,6 +77,7 @@ export default function Home() {
     async onSuccess(parsed, files, gridData) {
       setSteps(parsed);
       setHasConverted(true);
+      setIsInputExpanded(false);
       await pm.saveNewProject(parsed, files, lang, gridData);
     },
   });
@@ -557,19 +558,26 @@ export default function Home() {
         const activeProject = pm.currentProjectId
           ? pm.projects.find((p) => p.id === pm.currentProjectId)
           : null;
-        if (hasConverted && activeProject?.type === "grid" && activeProject.gridData) {
+        const isGridProject = hasConverted && activeProject?.type === "grid" && !!activeProject.gridData;
+        if (isGridProject) {
           return (
             <GridView
-              projectName={activeProject.name}
-              data={activeProject.gridData}
+              projectName={activeProject!.name}
+              data={activeProject!.gridData!}
             />
           );
         }
         return null;
       })()}
 
-      {/* ── Checklist View ── */}
-      <ChecklistView
+      {/* ── Checklist View — hidden for grid projects ── */}
+      {(() => {
+        const activeProject = pm.currentProjectId
+          ? pm.projects.find((p) => p.id === pm.currentProjectId)
+          : null;
+        const isGridProject = hasConverted && activeProject?.type === "grid" && !!activeProject.gridData;
+        if (isGridProject) return null;
+        return <ChecklistView
         lang={lang}
         t={t}
         steps={steps}
@@ -603,7 +611,8 @@ export default function Home() {
         setCurrentFileIndex={pm.setCurrentFileIndex}
         onPrint={handlePrint}
         highlightedStepId={highlightedStepId}
-      />
+      />;
+      })()}
 
       {/* ── Floating Navigation Group ── */}
       <AnimatePresence>
