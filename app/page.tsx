@@ -7,6 +7,7 @@ import {
   ACCESS_CODE, MAX_IMAGES,
   type Lang, type Step,
 } from "./lib/types";
+import { DEFAULT_PROMPT_VERSION, type PromptVersion } from "./lib/prompts";
 import { useProjectManager } from "./hooks/useProjectManager";
 import { useAIConversion }   from "./hooks/useAIConversion";
 import ImportSection  from "./components/ImportSection";
@@ -47,6 +48,7 @@ export default function Home() {
   const [gridConfidenceModal, setGridConfidenceModal] = useState<{ confidence: number; analysisReport?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded]       = useState(true);
   const [isGridMode, setIsGridMode]       = useState(false);
+  const [promptVersion, setPromptVersion] = useState<PromptVersion>(DEFAULT_PROMPT_VERSION);
   const [dragIndex, setDragIndex]         = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -66,6 +68,7 @@ export default function Home() {
     uploadedImages,
     videoUrl,
     isGridMode,
+    promptVersion,
     latestFilesRef,
     onPreConvert() {
       setIsEditMode(false);
@@ -555,6 +558,8 @@ export default function Home() {
         setErrorMsg={ai.setError}
         isGridMode={isGridMode}
         setIsGridMode={setIsGridMode}
+        promptVersion={promptVersion}
+        setPromptVersion={setPromptVersion}
       />
 
       {/* ── Grid View (grid projects) ── */}
@@ -569,6 +574,7 @@ export default function Home() {
               projectName={activeProject!.name}
               data={activeProject!.gridData!}
               onProgressUpdate={(row) => pm.updateGridProgress(activeProject!.id, row)}
+              promptVersion={promptVersion}
             />
           );
         }

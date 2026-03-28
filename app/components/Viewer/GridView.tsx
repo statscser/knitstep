@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Maximize2 } from "lucide-react";
 import type { GridCell, GridData } from "../../lib/types";
+import { PROMPT_GALLERY, type PromptVersion } from "../../lib/prompts";
+import { ENABLE_PROMPT_LAB } from "../../config";
 
 // Normalize legacy string cells and new object cells to a common shape
 function normalizeCell(c: GridCell): { s: string; c?: string; u?: boolean; span?: number } {
@@ -23,6 +25,7 @@ interface GridViewProps {
   projectName: string;
   data: GridData;
   onProgressUpdate: (row: number) => void;
+  promptVersion?: PromptVersion;
 }
 
 // Canvas layout constants
@@ -42,7 +45,7 @@ const C_ACTIVE_FILL   = "rgba(143,175,150,0.28)"; // morandi-green tint for curr
 const C_ACTIVE_BORDER = "#8FAF96"; // var(--morandi-green)
 const C_DONE_OVERLAY  = "rgba(0,0,0,0.06)";       // dim completed rows
 
-export default function GridView({ projectName, data, onProgressUpdate }: GridViewProps) {
+export default function GridView({ projectName, data, onProgressUpdate, promptVersion }: GridViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
 
@@ -482,6 +485,23 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
           aria-label={`${projectName} knitting chart — tap a row to mark progress, pinch/scroll to zoom, drag to pan`}
         />
 
+        {/* Lab badge — floating top-left, only in Lab mode */}
+        {ENABLE_PROMPT_LAB && promptVersion && (
+          <div
+            style={{
+              position: "absolute", top: 8, left: 8,
+              padding: "2px 8px", borderRadius: 99,
+              background: "rgba(143,175,150,0.88)",
+              backdropFilter: "blur(4px)",
+              color: "#fff", fontSize: 10, fontWeight: 700,
+              letterSpacing: "0.04em", pointerEvents: "none",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.12)",
+            }}
+          >
+            🧪 {PROMPT_GALLERY[promptVersion]?.name ?? promptVersion}
+          </div>
+        )}
+
         {/* Reset-view button */}
         {isTransformed && (
           <button
@@ -576,6 +596,38 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
           )}
         </div>
       </div>
+      {/* Confidence + analysis report panel — always visible when data is present */}
+      {ENABLE_PROMPT_LAB && data.confidence !== undefined && (
+        <div
+          className="rounded-2xl px-4 py-3 flex flex-col gap-1.5"
+          style={{
+            background: "var(--bg-card)",
+            border: `1.5px solid ${data.confidence >= 85 ? "var(--border)" : "rgba(215,170,30,0.45)"}`,
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wide" style={{ color: C_MUTED }}>
+              AI 解析报告
+            </span>
+            <span
+              className="text-sm font-bold tabular-nums"
+              style={{ color: data.confidence >= 85 ? C_ACTIVE_BORDER : "#C97B3A" }}
+            >
+              {data.confidence}%
+            </span>
+          </div>
+          {data.analysisReport && (
+            <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              {data.analysisReport}
+            </p>
+          )}
+          {promptVersion && (
+            <p className="text-xs" style={{ color: C_MUTED, opacity: 0.7 }}>
+              提示词版本：{PROMPT_GALLERY[promptVersion]?.name ?? promptVersion}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { PROMPT_GALLERY, DEFAULT_PROMPT_VERSION, type PromptVersion } from "../../lib/prompts";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 const MODELS_TO_TRY = [
-  "gemini-3.1-flash-lite-preview",  // Development mode
-  "gemini-2.5-flash",
   "gemini-3-flash-preview",
+  "gemini-2.5-flash",
   "gemini-3.1-flash-lite-preview",
   "gemini-2.5-flash-lite",
 ] as const;
@@ -30,51 +30,14 @@ function validateGridData(obj: any): obj is GridData {
   );
 }
 
-const GRID_SYSTEM_PROMPT = `你是一个高精度的编织图解数字化专家。你的核心任务是将图片中的视觉符号**原封不动**地提取到 JSON 矩阵中。
-
-### 🚨 严格执行准则：
-
-1. **视觉忠实度 (Visual Fidelity) [最高优先级]**
-   - 格子里的内容必须是图片中出现的**原始视觉符号**（如：○, \\, /, V, ·, X, □, ⋈）。
-   - **严禁**将符号转换为文字说明（例如：严禁把 "○" 写成 "yarn over"，严禁把 "/" 写成 "knit"）。
-   - s 字段只允许出现：① 单个或少量字符的视觉符号（如 "○"、"/"、"X"），② 空字符串 ""（代表下针空白格），③ "span-continuation"（麻花占位）。
-   - **绝对禁止**在 s 字段中填写英文单词（如 "knit"、"purl"、"yarn over"）或中文词语。
-   - 如果格子是纯色块（无特殊符号），s 字段填 ""，c 字段填颜色 Hex 码。
-
-2. **矩阵结构 (Matrix Integrity)**
-   - 先数清总行数和总针数，确定矩阵维度 totalRows × totalStitches。
-   - 每行的 cells 数组长度必须严格等于 totalStitches（含 span-continuation 占位符）。
-   - 行方向：图解最底行 = rowNumber 1，最顶行 = rowNumber totalRows（从下往上）。
-   - 列方向：cells[0] = 最左格，cells[totalStitches-1] = 最右格。
-   - type 字段：右侧行号奇数为 "RS"，偶数为 "WS"；无法判断则全部填 "RS"。
-
-3. **颜色采样 (Color Sampling)**
-   - 对每格采样其**中心像素**颜色，格式 "#RRGGBB"；无颜色差异（白底）则填 ""。
-   - 反散点规则：编织图颜色分区明显，禁止输出随机跳跃颜色；若识别出散乱颜色，重新对齐坐标后再采样。
-
-4. **跨格麻花 (Cable Spanning)**
-   - 仅对横跨多个格子的单一长线条符号使用 span 属性。
-   - 起始格：{"s": "麻花视觉符号", "span": N, "c": "颜色"}。
-   - 被跨越格：{"s": "span-continuation"}（不含其他字段）。
-
-5. **确信度 (Confidence)**
-   - confidence: round((总格数 - 模糊格数) / 总格数 × 100)，范围 0-100。
-   - 若符号识别不准或出现彩色乱码，主动降低分值并在 analysisReport 中注明原因（中文）。
-   - 模糊格子标记 u: true。
-
-### 输出 — 只返回 JSON，无 markdown，无解释:
-{"confidence":<int>,"analysisReport":"<中文描述>","data":{"totalRows":<n>,"totalStitches":<n>,"colors":{"C1":"#RRGGBB"},"rows":[{"rowNumber":1,"type":"RS","cells":[{"s":"<sym>","c":"<#hex>","u":<bool>},...]},...],"legend":{"<sym>":"<说明>"}}}
-
-### 示例 — 含麻花符号的图解 2行×6针，置信度 92:
-{"confidence":92,"analysisReport":"麻花区域清晰，存在4针后交叉麻花符号。","data":{"totalRows":2,"totalStitches":6,"colors":{},"rows":[{"rowNumber":1,"type":"RS","cells":[{"s":"","c":""},{"s":"⋈","c":"","span":4},{"s":"span-continuation"},{"s":"span-continuation"},{"s":"span-continuation"},{"s":"","c":""}]},{"rowNumber":2,"type":"WS","cells":[{"s":"","c":""},{"s":"","c":""},{"s":"","c":""},{"s":"","c":""},{"s":"","c":""},{"s":"","c":""}]}],"legend":{"":"下针（正面）/ 上针（反面）","⋈":"4针后交叉麻花"}}}
-
-### 示例 — Fair Isle 颜色图解 2行×4针，置信度 100:
-{"confidence":100,"analysisReport":"颜色分区清晰，无歧义。","data":{"totalRows":2,"totalStitches":4,"colors":{"C1":"#2D5A27","C2":"#F5ECD7"},"rows":[{"rowNumber":1,"type":"RS","cells":[{"s":"","c":"#2D5A27"},{"s":"","c":"#F5ECD7"},{"s":"","c":"#2D5A27"},{"s":"","c":"#F5ECD7"}]},{"rowNumber":2,"type":"WS","cells":[{"s":"","c":"#F5ECD7"},{"s":"","c":"#F5ECD7"},{"s":"","c":"#F5ECD7"},{"s":"","c":"#F5ECD7"}]}],"legend":{"":"下针"}}}
-
-CRITICAL: Return ONLY the JSON object. No markdown fences. No extra text.`;
+function getGridPrompt(version: string): string {
+  const config = PROMPT_GALLERY[version as PromptVersion] ?? PROMPT_GALLERY[DEFAULT_PROMPT_VERSION];
+  return config.systemPrompt;
+}
 
 async function runGeminiGrid(
   images: { base64: string; mimeType: string }[],
+  promptVersion: string = DEFAULT_PROMPT_VERSION,
 ): Promise<GridData> {
   let lastError: any = null;
 
@@ -90,7 +53,7 @@ async function runGeminiGrid(
 
       const contents = [
         ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
-        GRID_SYSTEM_PROMPT + retryNote,
+        getGridPrompt(promptVersion) + retryNote,
       ];
 
       console.log(`[GridAI] model=${modelName} attempt=${attempt + 1}`);
@@ -126,6 +89,20 @@ async function runGeminiGrid(
 
         if (confidence     !== undefined) gridData.confidence     = confidence;
         if (analysisReport !== undefined) gridData.analysisReport = analysisReport;
+
+        // ── Sanitize: fix totalRows/totalStitches mismatches so canvas is complete ──
+        const actualRowCount = gridData.rows.length;
+        if (actualRowCount !== gridData.totalRows) {
+          console.warn(`[GridAI] totalRows mismatch: declared=${gridData.totalRows} actual=${actualRowCount} — correcting`);
+          gridData.totalRows = actualRowCount;
+        }
+        // Pad or trim each row to match totalStitches
+        const N = gridData.totalStitches;
+        for (const row of gridData.rows) {
+          if (!Array.isArray(row.cells)) row.cells = [];
+          while (row.cells.length < N) row.cells.push({ s: "", c: "" });
+          if (row.cells.length > N)    row.cells = row.cells.slice(0, N);
+        }
 
         // Debug: log first two rows so color mis-mapping is visible in server logs
         console.log(`[GridAI] rows=${gridData.totalRows} sts=${gridData.totalStitches} confidence=${confidence}`);
@@ -407,12 +384,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, language, images, accessCode, isGridMode } = body as {
+    const { text, language, images, accessCode, isGridMode, promptVersion } = body as {
       text: string;
       language: "zh" | "en";
       images?: { base64: string; mimeType: string }[];
       accessCode?: string;
       isGridMode?: boolean;
+      promptVersion?: string;
     };
 
     const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
@@ -424,7 +402,7 @@ export async function POST(request: NextRequest) {
       if (!images || images.length === 0) {
         return NextResponse.json({ error: "GRID_NO_IMAGE" }, { status: 400 });
       }
-      const gridData = await runGeminiGrid(images);
+      const gridData = await runGeminiGrid(images, promptVersion);
       return NextResponse.json({ type: "grid", data: gridData });
     }
 

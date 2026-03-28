@@ -4,6 +4,8 @@ import React, { useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { UploadCloud, Camera, FileText, Plus, Video, ArrowUpLeft, ArrowDownRight } from "lucide-react";
 import { CARD_STYLE, RADIUS, SAMPLE_PATTERN, MAX_IMAGES, type Lang, type dict } from "../lib/types";
+import { PROMPT_GALLERY, type PromptVersion } from "../lib/prompts";
+import { ENABLE_PROMPT_LAB } from "../config";
 
 export interface ImportSectionProps {
   lang: Lang;
@@ -40,6 +42,8 @@ export interface ImportSectionProps {
   setErrorMsg: (msg: string | null) => void;
   isGridMode: boolean;
   setIsGridMode: (v: boolean) => void;
+  promptVersion: PromptVersion;
+  setPromptVersion: (v: PromptVersion) => void;
 }
 
 export default function ImportSection({
@@ -77,6 +81,8 @@ export default function ImportSection({
   setErrorMsg,
   isGridMode,
   setIsGridMode,
+  promptVersion,
+  setPromptVersion,
 }: ImportSectionProps) {
   return (
     <div className="no-print w-full max-w-xl" style={{ marginBottom: isInputExpanded ? "1.5rem" : "0.5rem" }}>
@@ -330,6 +336,39 @@ export default function ImportSection({
                   );
                 })}
               </div>
+
+              {/* ── KnitStep Lab: prompt version selector (grid mode only) ── */}
+              {ENABLE_PROMPT_LAB && isGridMode && (
+                <div className="mb-4 flex flex-col gap-1.5">
+                  <label
+                    className="text-xs font-semibold tracking-wide uppercase"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    🧪 Lab — AI 提示词版本
+                  </label>
+                  <select
+                    value={promptVersion}
+                    onChange={(e) => setPromptVersion(e.target.value as PromptVersion)}
+                    className="w-full px-3 py-2 rounded-xl text-sm font-medium outline-none"
+                    style={{
+                      background:   "var(--bg)",
+                      border:       "1.5px solid var(--morandi-sage)",
+                      color:        "var(--text-main)",
+                      cursor:       "pointer",
+                      appearance:   "none",
+                    }}
+                  >
+                    {(Object.values(PROMPT_GALLERY) as typeof PROMPT_GALLERY[PromptVersion][]).map((cfg) => (
+                      <option key={cfg.id} value={cfg.id}>
+                        {cfg.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs px-1" style={{ color: "var(--text-muted)" }}>
+                    {PROMPT_GALLERY[promptVersion].description}
+                  </p>
+                </div>
+              )}
 
               {/* ── Photo / Video sub-tab toggle (hidden in grid mode) ── */}
               {!isGridMode && (

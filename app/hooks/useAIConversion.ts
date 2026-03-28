@@ -26,6 +26,7 @@ interface UseAIConversionOptions {
   uploadedImages: UploadedImage[];
   videoUrl: string;
   isGridMode: boolean;
+  promptVersion?: string;
   /** Ref holding the raw File objects accumulated during this session. */
   latestFilesRef: React.MutableRefObject<File[]>;
   /** Called at the very start of a conversion so page.tsx can reset UI state. */
@@ -42,6 +43,7 @@ export function useAIConversion({
   uploadedImages,
   videoUrl,
   isGridMode,
+  promptVersion,
   latestFilesRef,
   onPreConvert,
   onSuccess,
@@ -118,6 +120,7 @@ export function useAIConversion({
                   images: uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType })),
                   accessCode: ACCESS_CODE,
                   isGridMode,
+                  promptVersion,
                 }
               : { text: inputText, language: lang, accessCode: ACCESS_CODE };
           res = await fetch("/api/parse", {
