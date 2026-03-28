@@ -44,6 +44,7 @@ export default function Home() {
   const [highlightedStepId, setHighlightedStepId]   = useState<number | null>(null);
   const [activeMenuStepId, setActiveMenuStepId]     = useState<number | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
+  const [gridConfidenceModal, setGridConfidenceModal] = useState<{ confidence: number; analysisReport?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded]       = useState(true);
   const [isGridMode, setIsGridMode]       = useState(false);
   const [dragIndex, setDragIndex]         = useState<number | null>(null);
@@ -79,6 +80,9 @@ export default function Home() {
       setHasConverted(true);
       setIsInputExpanded(false);
       await pm.saveNewProject(parsed, files, lang, gridData);
+      if (gridData?.confidence !== undefined) {
+        setGridConfidenceModal({ confidence: gridData.confidence, analysisReport: gridData.analysisReport });
+      }
     },
   });
 
@@ -753,6 +757,98 @@ export default function Home() {
                 )}
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Grid Confidence Modal ── */}
+      <AnimatePresence>
+        {gridConfidenceModal && (
+          <motion.div
+            key="confidence-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+            onClick={() => setGridConfidenceModal(null)}
+          >
+            <motion.div
+              key="confidence-modal"
+              initial={{ opacity: 0, scale: 0.94, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 12 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm mx-4 rounded-3xl px-6 py-6 flex flex-col gap-4"
+              style={{ background: "var(--bg-card)", border: "1.5px solid var(--border)", boxShadow: "0 20px 60px -10px rgba(0,0,0,0.18)" }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold" style={{ color: "var(--text-main)" }}>
+                  {lang === "zh" ? "AI 识别报告" : "AI Recognition Report"}
+                </span>
+                <button
+                  onClick={() => setGridConfidenceModal(null)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", lineHeight: 0, padding: 4 }}
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Confidence ring / score */}
+              <div className="flex flex-col items-center gap-1 py-2">
+                <span
+                  className="text-5xl font-bold tabular-nums"
+                  style={{ color: gridConfidenceModal.confidence >= 80 ? "#8FAF96" : "#C97B3A" }}
+                >
+                  {gridConfidenceModal.confidence}%
+                </span>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {lang === "zh" ? "置信度" : "Confidence"}
+                </span>
+              </div>
+
+              {/* Analysis report */}
+              {gridConfidenceModal.analysisReport && (
+                <p className="text-xs text-center px-1" style={{ color: "var(--text-muted)", lineHeight: 1.6 }}>
+                  {gridConfidenceModal.analysisReport}
+                </p>
+              )}
+
+              {/* Low-confidence warning */}
+              {gridConfidenceModal.confidence < 80 && (
+                <div
+                  className="rounded-2xl px-4 py-3 text-xs flex flex-col gap-2"
+                  style={{ background: "rgba(245,200,50,0.12)", border: "1.5px solid rgba(215,170,30,0.40)", color: "#7A6000" }}
+                >
+                  <span style={{ fontWeight: 600 }}>
+                    {lang === "zh" ? "⚠ 识别置信度较低，建议人工核对图解。" : "⚠ Low confidence — please review the chart manually."}
+                  </span>
+                  <span style={{ color: "#9A7A00" }}>
+                    {lang === "zh" ? "橙色边框的格子表示 AI 存疑的位置。" : "Cells with orange borders are flagged as uncertain."}
+                  </span>
+                  <button
+                    disabled
+                    className="mt-1 rounded-xl px-3 py-1.5 text-xs font-semibold self-start"
+                    style={{ background: "rgba(215,170,30,0.18)", border: "1px solid rgba(215,170,30,0.35)", color: "#9A7A00", cursor: "not-allowed", opacity: 0.7 }}
+                  >
+                    {lang === "zh" ? "手动模式（开发中）" : "Manual Mode (Coming Soon)"}
+                  </button>
+                </div>
+              )}
+
+              {/* Dismiss */}
+              <button
+                onClick={() => setGridConfidenceModal(null)}
+                className="rounded-2xl py-2 text-sm font-semibold"
+                style={{ background: "var(--morandi-stone)", color: "#fff", border: "none", cursor: "pointer" }}
+              >
+                {lang === "zh" ? "好的" : "Got it"}
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

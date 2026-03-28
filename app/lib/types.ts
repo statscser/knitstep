@@ -19,10 +19,15 @@ export interface Step {
   sourceFileIndex?: number;                     // index into project's originalFiles array
 }
 
+// GridCell is a union to support both legacy string cells (stored in DB) and
+// the richer object format returned by the color-aware API.
+// u: true flags an uncertain cell (low AI confidence) for visual highlighting.
+export type GridCell = string | { s: string; c?: string; u?: boolean; span?: number };
+
 export interface GridRow {
   rowNumber: number;
   type: string;
-  cells: string[];
+  cells: GridCell[];
 }
 
 export interface GridData {
@@ -30,7 +35,10 @@ export interface GridData {
   totalStitches: number;
   rows: GridRow[];
   legend: Record<string, string>;
-  currentRow?: number; // 1-based; persisted as knitting progress
+  colors?: Record<string, string>; // color palette: { "C1": "#2D5A27", ... }
+  currentRow?: number;    // 1-based; persisted as knitting progress
+  confidence?: number;    // 0-100 AI recognition confidence score
+  analysisReport?: string; // brief description of recognition difficulty
 }
 
 export interface Project {

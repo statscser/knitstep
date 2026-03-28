@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MOCK_GRID_PROJECT_DATA } from "../../lib/mockGridData";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -16,42 +15,63 @@ const MODELS_TO_TRY = [
 let inFlight = false;
 
 // ─── Grid types (mirrored from lib/types to keep this route self-contained) ──
-interface GridRow   { rowNumber: number; type: "RS" | "WS"; cells: string[]; }
-interface GridData  { totalRows: number; totalStitches: number; rows: GridRow[]; legend: Record<string, string>; }
+type GridCellObj = { s: string; c?: string; u?: boolean; span?: number };
+interface GridRow  { rowNumber: number; type: "RS" | "WS"; cells: (GridCellObj | string)[]; }
+interface GridData { totalRows: number; totalStitches: number; rows: GridRow[]; legend: Record<string, string>; colors?: Record<string, string>; confidence?: number; analysisReport?: string; }
 
 function validateGridData(obj: any): obj is GridData {
   return (
     obj !== null &&
     typeof obj === "object" &&
-    typeof obj.totalRows    === "number" && obj.totalRows    > 0 &&
+    typeof obj.totalRows     === "number" && obj.totalRows     > 0 &&
     typeof obj.totalStitches === "number" && obj.totalStitches > 0 &&
     Array.isArray(obj.rows) && obj.rows.length > 0 &&
     typeof obj.legend === "object" && obj.legend !== null
   );
 }
 
-// Few-shot example built from the real diamond mock — correct escaping guaranteed
-const GRID_FEW_SHOT = JSON.stringify({ type: "grid", data: MOCK_GRID_PROJECT_DATA });
+const GRID_SYSTEM_PROMPT = `你是一个高精度的编织图解数字化专家。你的核心任务是将图片中的视觉符号**原封不动**地提取到 JSON 矩阵中。
 
-const GRID_SYSTEM_PROMPT = `You are a professional knitting chart expert (编织图解专家). \
-Your task is to convert a KNITTING GRID CHART image into structured JSON data.
+### 🚨 严格执行准则：
 
-Please parse this image as a KNITTING GRID CHART. Focus on the grid structure and the symbol legend.
+1. **视觉忠实度 (Visual Fidelity) [最高优先级]**
+   - 格子里的内容必须是图片中出现的**原始视觉符号**（如：○, \\, /, V, ·, X, □, ⋈）。
+   - **严禁**将符号转换为文字说明（例如：严禁把 "○" 写成 "yarn over"，严禁把 "/" 写成 "knit"）。
+   - s 字段只允许出现：① 单个或少量字符的视觉符号（如 "○"、"/"、"X"），② 空字符串 ""（代表下针空白格），③ "span-continuation"（麻花占位）。
+   - **绝对禁止**在 s 字段中填写英文单词（如 "knit"、"purl"、"yarn over"）或中文词语。
+   - 如果格子是纯色块（无特殊符号），s 字段填 ""，c 字段填颜色 Hex 码。
 
-### Requirements:
-1. **Identify Legend (符号表)**: Extract all symbols (○, \\, /, blank square, etc.) and their stitch descriptions from any legend visible in the image.
-2. **Count accurately**: totalRows = number of horizontal rows in the grid; totalStitches = number of columns.
-3. **Parse row by row**: Row 1 is at the BOTTOM of the chart. Work upward row by row. Read cells left-to-right unless the chart marks RS rows right-to-left.
-4. **Empty / plain knit cells**: Use "" (empty string) for blank or plain-knit squares.
+2. **矩阵结构 (Matrix Integrity)**
+   - 先数清总行数和总针数，确定矩阵维度 totalRows × totalStitches。
+   - 每行的 cells 数组长度必须严格等于 totalStitches（含 span-continuation 占位符）。
+   - 行方向：图解最底行 = rowNumber 1，最顶行 = rowNumber totalRows（从下往上）。
+   - 列方向：cells[0] = 最左格，cells[totalStitches-1] = 最右格。
+   - type 字段：右侧行号奇数为 "RS"，偶数为 "WS"；无法判断则全部填 "RS"。
 
-### Output format — return ONLY valid JSON, no markdown fences, no explanation:
-{"type":"grid","data":{"totalRows":<n>,"totalStitches":<n>,"rows":[{"rowNumber":1,"type":"RS","cells":["sym",...]},...],"legend":{"<symbol>":"<description>",...}}}
+3. **颜色采样 (Color Sampling)**
+   - 对每格采样其**中心像素**颜色，格式 "#RRGGBB"；无颜色差异（白底）则填 ""。
+   - 反散点规则：编织图颜色分区明显，禁止输出随机跳跃颜色；若识别出散乱颜色，重新对齐坐标后再采样。
 
-### Few-shot example:
-If the image is a 12-row × 11-stitch diamond lace chart, the correct output is:
-${GRID_FEW_SHOT}
+4. **跨格麻花 (Cable Spanning)**
+   - 仅对横跨多个格子的单一长线条符号使用 span 属性。
+   - 起始格：{"s": "麻花视觉符号", "span": N, "c": "颜色"}。
+   - 被跨越格：{"s": "span-continuation"}（不含其他字段）。
 
-CRITICAL: Return ONLY the JSON object. No markdown. No explanation.`;
+5. **确信度 (Confidence)**
+   - confidence: round((总格数 - 模糊格数) / 总格数 × 100)，范围 0-100。
+   - 若符号识别不准或出现彩色乱码，主动降低分值并在 analysisReport 中注明原因（中文）。
+   - 模糊格子标记 u: true。
+
+### 输出 — 只返回 JSON，无 markdown，无解释:
+{"confidence":<int>,"analysisReport":"<中文描述>","data":{"totalRows":<n>,"totalStitches":<n>,"colors":{"C1":"#RRGGBB"},"rows":[{"rowNumber":1,"type":"RS","cells":[{"s":"<sym>","c":"<#hex>","u":<bool>},...]},...],"legend":{"<sym>":"<说明>"}}}
+
+### 示例 — 含麻花符号的图解 2行×6针，置信度 92:
+{"confidence":92,"analysisReport":"麻花区域清晰，存在4针后交叉麻花符号。","data":{"totalRows":2,"totalStitches":6,"colors":{},"rows":[{"rowNumber":1,"type":"RS","cells":[{"s":"","c":""},{"s":"⋈","c":"","span":4},{"s":"span-continuation"},{"s":"span-continuation"},{"s":"span-continuation"},{"s":"","c":""}]},{"rowNumber":2,"type":"WS","cells":[{"s":"","c":""},{"s":"","c":""},{"s":"","c":""},{"s":"","c":""},{"s":"","c":""},{"s":"","c":""}]}],"legend":{"":"下针（正面）/ 上针（反面）","⋈":"4针后交叉麻花"}}}
+
+### 示例 — Fair Isle 颜色图解 2行×4针，置信度 100:
+{"confidence":100,"analysisReport":"颜色分区清晰，无歧义。","data":{"totalRows":2,"totalStitches":4,"colors":{"C1":"#2D5A27","C2":"#F5ECD7"},"rows":[{"rowNumber":1,"type":"RS","cells":[{"s":"","c":"#2D5A27"},{"s":"","c":"#F5ECD7"},{"s":"","c":"#2D5A27"},{"s":"","c":"#F5ECD7"}]},{"rowNumber":2,"type":"WS","cells":[{"s":"","c":"#F5ECD7"},{"s":"","c":"#F5ECD7"},{"s":"","c":"#F5ECD7"},{"s":"","c":"#F5ECD7"}]}],"legend":{"":"下针"}}}
+
+CRITICAL: Return ONLY the JSON object. No markdown fences. No extra text.`;
 
 async function runGeminiGrid(
   images: { base64: string; mimeType: string }[],
@@ -77,7 +97,7 @@ async function runGeminiGrid(
       try {
         const result = await model.generateContent(contents);
         const raw    = result.response.text().trim();
-        console.log(`[GridAI] snippet: ${raw.slice(0, 120)}`);
+        console.log(`[GridAI] snippet: ${raw.slice(0, 300)}`);
 
         // Strip markdown fences if the model added them despite instructions
         const cleaned   = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
@@ -86,14 +106,32 @@ async function runGeminiGrid(
         if (jsonStart === -1 || jsonEnd === -1) throw new Error("No JSON found in response");
 
         const parsed   = JSON.parse(cleaned.slice(jsonStart, jsonEnd + 1));
-        // Accept both { type:"grid", data:{...} } and bare GridData objects
-        const gridData = parsed.type === "grid" ? parsed.data : (parsed.data ?? parsed);
+
+        // Extract confidence / analysisReport from the top-level envelope
+        const confidence = typeof parsed.confidence === "number"
+          ? Math.round(Math.max(0, Math.min(100, parsed.confidence)))
+          : undefined;
+        const analysisReport = typeof parsed.analysisReport === "string"
+          ? parsed.analysisReport
+          : undefined;
+
+        // Accept { confidence, data:{...} }, { type:"grid", data:{...} }, or bare GridData
+        const gridData = parsed.data ?? parsed;
 
         if (!validateGridData(gridData)) {
           throw new Error(
             `GRID_INVALID_SHAPE — got keys: [${Object.keys(gridData ?? {}).join(", ")}]`,
           );
         }
+
+        if (confidence     !== undefined) gridData.confidence     = confidence;
+        if (analysisReport !== undefined) gridData.analysisReport = analysisReport;
+
+        // Debug: log first two rows so color mis-mapping is visible in server logs
+        console.log(`[GridAI] rows=${gridData.totalRows} sts=${gridData.totalStitches} confidence=${confidence}`);
+        console.log(`[GridAI] row1 cells:`, JSON.stringify(gridData.rows[0]?.cells?.slice(0, 6)));
+        if (gridData.rows[1]) console.log(`[GridAI] row2 cells:`, JSON.stringify(gridData.rows[1]?.cells?.slice(0, 6)));
+
         return gridData;
 
       } catch (err: any) {

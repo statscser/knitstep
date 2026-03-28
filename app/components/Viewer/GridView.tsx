@@ -2,7 +2,20 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Maximize2 } from "lucide-react";
-import type { GridData } from "../../lib/types";
+import type { GridCell, GridData } from "../../lib/types";
+
+// Normalize legacy string cells and new object cells to a common shape
+function normalizeCell(c: GridCell): { s: string; c?: string; u?: boolean; span?: number } {
+  return typeof c === "string" ? { s: c } : c;
+}
+
+// Returns true if the hex color is perceptually light (use dark text on top)
+function isLightColor(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+}
 
 // ─── GridView ─────────────────────────────────────────────────────────────────
 
@@ -41,6 +54,7 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
   );
   const [transform, setTransform]   = useState({ scale: 1, ox: 0, oy: 0 });
   const [isDragging, setIsDragging] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Mirror transform in refs so gesture callbacks never capture stale state
   const scaleRef = useRef(1);
@@ -60,11 +74,12 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
     const newRow = Math.max(1, Math.min(totalRows, data.currentRow ?? 1));
     setCurrentRow(newRow);
 
-    // Reset zoom/pan
+    // Reset zoom/pan and banner
     scaleRef.current = 1;
     oxRef.current    = 0;
     oyRef.current    = 0;
     setTransform({ scale: 1, ox: 0, oy: 0 });
+    setBannerDismissed(false);
 
     // Scroll the page so currentRow is centred in the viewport
     requestAnimationFrame(() => {
@@ -126,6 +141,8 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
     canvas.style.height = `${cssH}px`;
 
     const ctx = canvas.getContext("2d")!;
+    // Clear the physical pixel buffer first (canvas.width assignment clears it, but be explicit)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, cssW, cssH);
 
@@ -161,18 +178,52 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
       ctx.fillText(String(row.rowNumber), LEFT_MARGIN - 5, y + cellSide / 2);
 
       // Cells
-      row.cells.forEach((symbol, colIdx) => {
-        const x = LEFT_MARGIN + colIdx * cellSide;
-        ctx.strokeStyle = C_LINE;
-        ctx.lineWidth   = 0.75;
-        ctx.strokeRect(x + 0.5, y + 0.5, cellSide - 1, cellSide - 1);
-        if (symbol) {
-          const symSize    = Math.max(11, Math.round(cellSide * 0.54));
-          ctx.font         = `${symSize}px system-ui, sans-serif`;
-          ctx.fillStyle    = C_TEXT;
+      row.cells.forEach((rawCell, colIdx) => {
+        const cell = normalizeCell(rawCell);
+
+        // Skip span-continuation placeholders — the preceding span cell already covers this area
+        if (cell.s === "span-continuation") return;
+
+        const span  = cell.span ?? 1;
+        const x     = LEFT_MARGIN + colIdx * cellSide;
+        const width = cellSide * span;
+
+        // Color fill (Fair Isle / Jacquard / cable background)
+        if (cell.c) {
+          ctx.fillStyle = cell.c;
+          ctx.fillRect(x, y, width, cellSide);
+        }
+
+        // Grid border — single rect spanning the full cable width
+        ctx.strokeStyle = cell.c ? "rgba(0,0,0,0.18)" : C_LINE;
+        ctx.lineWidth   = span > 1 ? 1.25 : 0.75;
+        ctx.strokeRect(x + 0.5, y + 0.5, width - 1, cellSide - 1);
+
+        // Symbol — centered across the full span width, shrunk to fit if too wide
+        if (cell.s) {
+          let symSize = Math.max(11, Math.round(cellSide * (span > 1 ? 0.58 : 0.54)));
+          ctx.font    = `${symSize}px system-ui, sans-serif`;
+          // If the text overflows the cell, scale the font down proportionally
+          const availW = width - 4;
+          const textW  = ctx.measureText(cell.s).width;
+          if (textW > availW && availW > 0) {
+            symSize  = Math.max(8, Math.floor(symSize * (availW / textW)));
+            ctx.font = `${symSize}px system-ui, sans-serif`;
+          }
+          ctx.fillStyle    = cell.c ? (isLightColor(cell.c) ? C_TEXT : "#fff") : C_TEXT;
           ctx.textAlign    = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText(symbol, x + cellSide / 2, y + cellSide / 2 + 1);
+          ctx.fillText(cell.s, x + width / 2, y + cellSide / 2 + 1);
+        }
+
+        // Uncertainty — small amber '?' in top-right corner
+        if (cell.u) {
+          const qSize = Math.max(8, Math.round(cellSide * 0.32));
+          ctx.font         = `bold ${qSize}px system-ui, sans-serif`;
+          ctx.fillStyle    = "rgba(210, 100, 20, 0.82)";
+          ctx.textAlign    = "right";
+          ctx.textBaseline = "top";
+          ctx.fillText("?", x + width - 2, y + 2);
         }
       });
 
@@ -362,6 +413,34 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
   return (
     <div className="w-full max-w-xl flex flex-col gap-3">
 
+      {/* Confidence banner — shown when AI confidence is below 85% and not dismissed */}
+      {data.confidence !== undefined && data.confidence < 85 && !bannerDismissed && (
+        <div
+          className="flex items-start gap-2 px-4 py-2.5 rounded-2xl text-xs"
+          style={{
+            background: "rgba(245,200,50,0.12)",
+            border:     "1.5px solid rgba(215,170,30,0.45)",
+            color:      "#7A6000",
+          }}
+        >
+          <span style={{ fontWeight: 700, flexShrink: 0 }}>
+            ⚠ AI 置信度 {data.confidence}%
+          </span>
+          <span style={{ flex: 1, color: "#9A7A00" }}>
+            {data.analysisReport
+              ? `— ${data.analysisReport}`
+              : "— 建议人工核对图解，橙色边框格子表示 AI 识别存疑。"}
+          </span>
+          <button
+            onClick={() => setBannerDismissed(true)}
+            aria-label="关闭提示"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#9A7A00", lineHeight: 0, padding: "1px", flexShrink: 0 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Progress header */}
       <div
         className="flex items-center justify-between px-4 py-2 rounded-2xl text-xs"
@@ -441,7 +520,7 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
               {activeRowData.type}
             </span>
             <span style={{ color: C_MUTED, fontSize: "0.75rem" }}>
-              {activeRowData.cells.filter(Boolean).join("  ") || "knit / purl"}
+              {activeRowData.cells.map(normalizeCell).map(c => c.s).filter(s => s && s !== "span-continuation").join("  ") || (data.colors ? "color block" : "knit / purl")}
             </span>
             {currentRow > 1 && (
               <button
@@ -481,6 +560,20 @@ export default function GridView({ projectName, data, onProgressUpdate }: GridVi
               <span>{meaning}</span>
             </span>
           ))}
+          {data.colors && Object.keys(data.colors).length > 0 && (
+            <>
+              <div className="w-full" style={{ borderTop: `1px solid ${C_LINE}`, marginTop: 2, paddingTop: 2 }} />
+              {Object.entries(data.colors).map(([id, hex]) => (
+                <span key={id} className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  <span
+                    className="inline-flex rounded-md flex-shrink-0"
+                    style={{ width: 24, height: 24, background: hex, border: "1px solid rgba(0,0,0,0.14)" }}
+                  />
+                  <span>{id} — {hex}</span>
+                </span>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>
