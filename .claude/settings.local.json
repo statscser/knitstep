@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(cd:*)",
-      "Bash(npx tsc --noEmit)"
+      "Bash(npx tsc --noEmit)",
+      "Bash(ls \"c:\\\\Users\\\\grace\\\\apps\\\\knitstep\\\\app\\\\components\\\\Viewer\"\" && cat \"c:Usersgraceappsknitstepapplibtypes.ts \")"
     ]
   }
 }

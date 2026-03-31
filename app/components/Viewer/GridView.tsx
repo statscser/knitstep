@@ -30,13 +30,12 @@ interface GridViewProps {
 // Canvas layout constants
 const LEFT_MARGIN   = 30; // px reserved for row-number labels
 const BOTTOM_MARGIN = 24; // px reserved for stitch-number labels
-// Minimum readable cell size in CSS px
-const MIN_CELL      = 14;
-// Approximate height budget for UI outside the canvas (header, progress bar, etc.)
-const UI_HEIGHT_BUDGET = 200;
+// Cell size bounds in CSS px
+const MIN_CELL = 20;
+const MAX_CELL = 40;
 
 // Morandi palette — hardcoded so canvas ctx can use them directly
-const C_LINE          = "#E0D4CA";
+const C_LINE          = "#e0d4ca7b";
 const C_TEXT          = "#3D3530";
 const C_MUTED         = "#9C8C7C";
 const C_WS_FILL       = "rgba(192,175,166,0.13)";
@@ -71,8 +70,7 @@ export default function GridView({ projectName, data, onProgressUpdate, promptVe
       if (!canvas || !container) return;
       const cssW      = container.clientWidth;
       const cellByW   = Math.floor((cssW - LEFT_MARGIN) / totalStitches);
-      const cellByH   = Math.floor((window.innerHeight - UI_HEIGHT_BUDGET - BOTTOM_MARGIN) / totalRows);
-      const cellSide  = Math.max(MIN_CELL, Math.min(cellByW, cellByH));
+      const cellSide  = Math.max(MIN_CELL, Math.min(MAX_CELL, cellByW));
       const dataIdx   = rows.findIndex((r) => r.rowNumber === newRow);
       if (dataIdx < 0) return;
       const canvasRow = totalRows - 1 - dataIdx;
@@ -94,8 +92,7 @@ export default function GridView({ projectName, data, onProgressUpdate, promptVe
     if (canvasX < LEFT_MARGIN) return;
     const cssW     = container.clientWidth;
     const cellByW  = Math.floor((cssW - LEFT_MARGIN) / totalStitches);
-    const cellByH  = Math.floor((window.innerHeight - UI_HEIGHT_BUDGET - BOTTOM_MARGIN) / totalRows);
-    const cellSide = Math.max(MIN_CELL, Math.min(cellByW, cellByH));
+    const cellSide = Math.max(MIN_CELL, Math.min(MAX_CELL, cellByW));
     const canvasRow = Math.floor(canvasY / cellSide);
     if (canvasRow < 0 || canvasRow >= totalRows) return;
     const dataIdx = totalRows - 1 - canvasRow;
@@ -114,12 +111,10 @@ export default function GridView({ projectName, data, onProgressUpdate, promptVe
     const dpr = window.devicePixelRatio || 1;
     const cssW = container.clientWidth;
 
-    // Choose the largest cell that fits both the container width and viewport height.
-    // This makes the grid fill the screen on wider devices without needing to scroll.
-    // If the grid is too tall/wide at MIN_CELL, the overflow container handles scrolling.
-    const cellByWidth  = Math.floor((cssW - LEFT_MARGIN) / totalStitches);
-    const cellByHeight = Math.floor((window.innerHeight - UI_HEIGHT_BUDGET - BOTTOM_MARGIN) / totalRows);
-    const cellSide     = Math.max(MIN_CELL, Math.min(cellByWidth, cellByHeight));
+    // Cell size = as large as fits the container width, clamped to [MIN_CELL, MAX_CELL].
+    // If the resulting grid is taller than the viewport, the overflow container handles scrolling.
+    const cellByWidth = Math.floor((cssW - LEFT_MARGIN) / totalStitches);
+    const cellSide    = Math.max(MIN_CELL, Math.min(MAX_CELL, cellByWidth));
 
     const gridW   = cellSide * totalStitches;
     const gridH   = cellSide * totalRows;
@@ -239,12 +234,7 @@ export default function GridView({ projectName, data, onProgressUpdate, promptVe
     return () => ro.disconnect();
   }, [draw]);
 
-  // Redraw when viewport is resized (cellByHeight depends on window.innerHeight)
-  useEffect(() => {
-    const onResize = () => draw();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [draw]);
+  // Redraw when viewport is resized (cellByWidth depends on container width, handled by ResizeObserver above)
 
   // ── Passive touch tap detection — browser handles all scroll ─────────────
   useEffect(() => {

@@ -16,6 +16,10 @@
   --font-body: var(--font-quicksand), "Varela Round", "Nunito", system-ui, sans-serif;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 body {
   background-color: var(--bg);
   color: var(--text-main);

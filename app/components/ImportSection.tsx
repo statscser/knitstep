@@ -44,6 +44,8 @@ export interface ImportSectionProps {
   setIsGridMode: (v: boolean) => void;
   promptVersion: PromptVersion;
   setPromptVersion: (v: PromptVersion) => void;
+  /** Optional: triggers the manual calibration flow */
+  onCalibrate?: () => void;
 }
 
 export default function ImportSection({
@@ -83,6 +85,7 @@ export default function ImportSection({
   setIsGridMode,
   promptVersion,
   setPromptVersion,
+  onCalibrate,
 }: ImportSectionProps) {
   return (
     <div className="no-print w-full max-w-xl" style={{ marginBottom: isInputExpanded ? "1.5rem" : "0.5rem" }}>
@@ -724,6 +727,27 @@ export default function ImportSection({
                         </motion.span>
                       </AnimatePresence>
                     </motion.button>
+
+                    {/* Calibration mode button — grid mode only */}
+                    {isGridMode && onCalibrate && (
+                      <motion.button
+                        onClick={onCalibrate}
+                        disabled={isLoading}
+                        whileHover={isLoading ? {} : { scale: 1.02 }}
+                        whileTap={isLoading ? {} : { scale: 0.97 }}
+                        className="mt-2 w-full py-2.5 text-sm font-semibold tracking-wide flex items-center justify-center gap-2"
+                        style={{
+                          background:   "var(--bg)",
+                          color:        "var(--morandi-green)",
+                          borderRadius: RADIUS,
+                          border:       "1.5px solid var(--morandi-green)",
+                          cursor:       isLoading ? "not-allowed" : "pointer",
+                          opacity:      isLoading ? 0.5 : 1,
+                        }}
+                      >
+                        🎯 {lang === "zh" ? "精准校准（新）" : "Precise Calibration (New)"}
+                      </motion.button>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>

@@ -13,6 +13,8 @@ import { useAIConversion }   from "./hooks/useAIConversion";
 import ImportSection  from "./components/ImportSection";
 import ChecklistView  from "./components/ChecklistView";
 import GridView       from "./components/Viewer/GridView";
+import GridCalibrator, { type CalibrationResult } from "./components/Viewer/GridCalibrator";
+import RowTracker, { type RowTrackerState } from "./components/Viewer/RowTracker";
 import ProjectGallery from "./components/ProjectGallery";
 import ReferencePanel from "./components/ReferencePanel";
 import {
@@ -52,6 +54,8 @@ export default function Home() {
   const [dragIndex, setDragIndex]         = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [showCalibrator, setShowCalibrator] = useState(false);
+  const [rowTrackerData, setRowTrackerData] = useState<RowTrackerState | null>(null);
   const touchStartX    = useRef<number | null>(null);
   const latestFilesRef = useRef<File[]>([]);
   const checklistTopRef = useRef<HTMLDivElement>(null);
@@ -92,6 +96,16 @@ export default function Home() {
   const t = dict[lang];
 
   // ── Effects ────────────────────────────────────────────────────────────────
+
+  // Load persisted row tracker from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("knitstep_tracker") ?? "{}");
+      if (saved.imageSrc && saved.rect && saved.rows) {
+        setRowTrackerData({ imageSrc: saved.imageSrc, rect: saved.rect, rows: saved.rows, stitches: saved.stitches ?? 1 });
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setShowBackToTop(window.scrollY > 320);
@@ -246,6 +260,13 @@ export default function Home() {
       setCodeError(true);
       setTimeout(() => setCodeError(false), 600);
     }
+  }
+
+  function handleCalibrationComplete(result: CalibrationResult) {
+    const img = uploadedImages[0];
+    const imageSrc = img ? `data:${img.mimeType};base64,${img.base64}` : "";
+    setRowTrackerData({ imageSrc, rect: result.rect, rows: result.rows, stitches: result.stitches });
+    setShowCalibrator(false);
   }
 
   function toggleStep(id: number) {
@@ -560,7 +581,51 @@ export default function Home() {
         setIsGridMode={setIsGridMode}
         promptVersion={promptVersion}
         setPromptVersion={setPromptVersion}
+        onCalibrate={isGridMode && uploadedImages.length > 0 ? () => setShowCalibrator(true) : undefined}
       />
+
+      {/* ── Calibrator ── */}
+      <AnimatePresence>
+        {showCalibrator && uploadedImages[0] && (
+          <motion.div
+            key="calibrator"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="w-full max-w-4xl"
+          >
+            <GridCalibrator
+              imageSrc={uploadedImages[0].previewUrl}
+              onComplete={handleCalibrationComplete}
+              onCancel={() => setShowCalibrator(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Row Tracker ── */}
+      <AnimatePresence>
+        {rowTrackerData && !showCalibrator && (
+          <motion.div
+            key="row-tracker"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="w-full max-w-4xl"
+          >
+            <RowTracker
+              {...rowTrackerData}
+              onReset={() => {
+                setRowTrackerData(null);
+                localStorage.removeItem("knitstep_tracker");
+                setShowCalibrator(true);
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Grid View (grid projects) ── */}
       {(() => {
