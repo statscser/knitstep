@@ -17,6 +17,7 @@ export interface CalibrationResult {
 
 interface GridCalibratorProps {
   imageSrc: string;
+  lang?: "zh" | "en";
   onComplete: (result: CalibrationResult) => void;
   isLoading?: boolean;
   error?: string | null;
@@ -35,8 +36,9 @@ type DragMode = "tl" | "tr" | "bl" | "br" | "move" | null;
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function GridCalibrator({
-  imageSrc, onComplete, isLoading = false, error, onCancel,
+  imageSrc, lang = "zh", onComplete, isLoading = false, error, onCancel,
 }: GridCalibratorProps) {
+  const zh = lang === "zh";
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [rowsStr,     setRowsStr]     = useState("20");
@@ -193,6 +195,82 @@ export default function GridCalibrator({
         </span>
       </div>
 
+      {/* Controls */}
+      <div
+        className="flex items-end justify-between gap-4 px-4 py-3 rounded-2xl flex-wrap"
+        style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}` }}
+      >
+        <div className="flex gap-5">
+          {([[zh ? "行数" : "Rows", rowsStr, setRowsStr], [zh ? "针数" : "Stitches", stitchesStr, setStitchesStr]] as const).map(
+            ([label, val, setter]) => (
+              <div key={label} className="flex flex-col gap-1">
+                <label className="text-xs font-bold uppercase tracking-wide" style={{ color: C_MUTED }}>
+                  {label}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={val}
+                  onChange={e => setter(e.target.value)}
+                  onBlur={e => {
+                    const n = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1));
+                    setter(String(n));
+                  }}
+                  style={{
+                    width: 64, padding: "4px 8px", borderRadius: 10,
+                    border: `1.5px solid ${C_BORDER}`, background: "var(--bg)",
+                    color: C_TEXT, fontSize: 14, fontFamily: "var(--font-body)", outline: "none",
+                  }}
+                />
+              </div>
+            )
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              disabled={isLoading}
+              style={{
+                padding: "8px 14px", borderRadius: 12, border: `1.5px solid ${C_BORDER}`,
+                background: "var(--bg)", color: C_MUTED, fontSize: 13, fontWeight: 600,
+                fontFamily: "var(--font-body)", cursor: isLoading ? "not-allowed" : "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {zh ? "取消" : "Cancel"}
+            </button>
+          )}
+          <button
+            onClick={handleConfirm}
+            disabled={isLoading}
+            style={{
+              padding: "8px 20px", borderRadius: 12, border: "none",
+              background: isLoading ? "#A8C5AE" : C_GREEN,
+              color: "#fff", fontSize: 13, fontWeight: 700,
+              fontFamily: "var(--font-body)", cursor: isLoading ? "not-allowed" : "pointer",
+              letterSpacing: "0.02em",
+              boxShadow: isLoading ? "none" : "0 2px 8px rgba(143,175,150,0.35)",
+              transition: "background 0.15s", whiteSpace: "nowrap",
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+            onMouseEnter={e => { if (!isLoading) e.currentTarget.style.background = "#7A9E82"; }}
+            onMouseLeave={e => { if (!isLoading) e.currentTarget.style.background = C_GREEN; }}
+          >
+            {isLoading && (
+              <span style={{
+                display: "inline-block", width: 12, height: 12,
+                border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff",
+                borderRadius: "50%", animation: "spin 0.7s linear infinite",
+              }} />
+            )}
+            {isLoading ? (zh ? "确认中…" : "Confirming…") : (zh ? "确认并开始追踪" : "Confirm & Start Tracking")}
+          </button>
+        </div>
+      </div>
+
       {/* Image + overlay */}
       <div
         ref={containerRef}
@@ -286,87 +364,11 @@ export default function GridCalibrator({
         />
       </div>
 
-      {/* Controls */}
-      <div
-        className="flex items-end justify-between gap-4 px-4 py-3 rounded-2xl flex-wrap"
-        style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}` }}
-      >
-        <div className="flex gap-5">
-          {([["Rows", rowsStr, setRowsStr], ["Stitches", stitchesStr, setStitchesStr]] as const).map(
-            ([label, val, setter]) => (
-              <div key={label} className="flex flex-col gap-1">
-                <label className="text-xs font-bold uppercase tracking-wide" style={{ color: C_MUTED }}>
-                  {label}
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={val}
-                  onChange={e => setter(e.target.value)}
-                  onBlur={e => {
-                    const n = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1));
-                    setter(String(n));
-                  }}
-                  style={{
-                    width: 64, padding: "4px 8px", borderRadius: 10,
-                    border: `1.5px solid ${C_BORDER}`, background: "var(--bg)",
-                    color: C_TEXT, fontSize: 14, fontFamily: "var(--font-body)", outline: "none",
-                  }}
-                />
-              </div>
-            )
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              disabled={isLoading}
-              style={{
-                padding: "8px 14px", borderRadius: 12, border: `1.5px solid ${C_BORDER}`,
-                background: "var(--bg)", color: C_MUTED, fontSize: 13, fontWeight: 600,
-                fontFamily: "var(--font-body)", cursor: isLoading ? "not-allowed" : "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Cancel
-            </button>
-          )}
-          <button
-            onClick={handleConfirm}
-            disabled={isLoading}
-            style={{
-              padding: "8px 20px", borderRadius: 12, border: "none",
-              background: isLoading ? "#A8C5AE" : C_GREEN,
-              color: "#fff", fontSize: 13, fontWeight: 700,
-              fontFamily: "var(--font-body)", cursor: isLoading ? "not-allowed" : "pointer",
-              letterSpacing: "0.02em",
-              boxShadow: isLoading ? "none" : "0 2px 8px rgba(143,175,150,0.35)",
-              transition: "background 0.15s", whiteSpace: "nowrap",
-              display: "flex", alignItems: "center", gap: 6,
-            }}
-            onMouseEnter={e => { if (!isLoading) e.currentTarget.style.background = "#7A9E82"; }}
-            onMouseLeave={e => { if (!isLoading) e.currentTarget.style.background = C_GREEN; }}
-          >
-            {isLoading && (
-              <span style={{
-                display: "inline-block", width: 12, height: 12,
-                border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff",
-                borderRadius: "50%", animation: "spin 0.7s linear infinite",
-              }} />
-            )}
-            {isLoading ? "Confirming…" : "Confirm & Start Tracking"}
-          </button>
-        </div>
-      </div>
-
       {error ? (
         <p className="text-xs text-center px-2" style={{ color: "var(--morandi-blush)" }}>⚠️ {error}</p>
       ) : (
         <p className="text-xs text-center px-2" style={{ color: C_MUTED }}>
-          Drag any corner to resize · drag inside to move · set rows &amp; stitches, then analyze.
+          {zh ? "拖动四角调整大小 · 拖动内部移动位置 · 输入行数和针数后确认" : "Drag any corner to resize · drag inside to move · set rows & stitches, then confirm."}
         </p>
       )}
     </div>

@@ -277,6 +277,9 @@ export default function Home() {
     const img = uploadedImages[0];
     const imageSrc = img ? `data:${img.mimeType};base64,${img.base64}` : "";
     const trackerState = { imageSrc, rect: result.rect, rows: result.rows, stitches: result.stitches };
+    // Write currentRow:1 to localStorage BEFORE mounting RowTracker so its
+    // lazy useState initializer always reads 1, not a stale value from a prior session.
+    try { localStorage.setItem("knitstep_tracker", JSON.stringify({ ...trackerState, currentRow: 1 })); } catch {}
     setRowTrackerData(trackerState);
     setShowCalibrator(false);
     // Save as a project so progress survives page reloads and shows in the gallery
@@ -628,6 +631,7 @@ export default function Home() {
           >
             <GridCalibrator
               imageSrc={uploadedImages[0].previewUrl}
+              lang={lang}
               onComplete={handleCalibrationComplete}
               onCancel={() => setShowCalibrator(false)}
             />
@@ -1135,7 +1139,7 @@ function LangToggle({ lang, onToggle }: { lang: Lang; onToggle: () => void }) {
           <motion.span
             key={l}
             animate={{
-              background: active ? "var(--morandi-pink)" : "transparent",
+              background: active ? "var(--morandi-pink)" : "rgba(0,0,0,0)",
               color:      active ? "#fff" : "var(--text-muted)",
             }}
             transition={{ duration: 0.25, ease: "easeInOut" }}
