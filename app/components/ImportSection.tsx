@@ -105,7 +105,7 @@ export default function ImportSection({
         >
           <ArrowUpLeft size={20} strokeWidth={2} />
         </button>
-        {(["text", "ai"] as const).map((tab) => {
+        {(["ai", "text"] as const).map((tab) => {
           const label  = tab === "text" ? t.tabText : t.tabAI;
           const active = activeTab === tab;
           return (
