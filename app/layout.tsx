@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Quicksand, M_PLUS_Rounded_1c } from "next/font/google";
 import "./globals.css";
 
@@ -50,6 +51,7 @@ export default function RootLayout({
       </head>
       <body className={`${quicksand.variable} ${mPlusRounded.variable} antialiased`} suppressHydrationWarning>
         {children}
+        <Analytics />
       </body>
     </html>
   );
