@@ -19,8 +19,9 @@ export interface DbProject {
   originalFiles?: StoredFile[] | (Blob | File)[];   // v2: Blob/File (legacy); v3+: StoredFile[]
   selectedSize?: string;
   availableSizes?: string[];
-  type?: "instruction" | "grid";
+  type?: "instruction" | "grid" | "tracker";
   gridData?: any;       // serialized GridData (includes currentRow)
+  trackerData?: any;    // serialized TrackerData (includes currentRow)
 }
 
 export class KnitStepDatabase extends Dexie {

@@ -60,6 +60,7 @@ export default function Home() {
   const touchStartX    = useRef<number | null>(null);
   const latestFilesRef = useRef<File[]>([]);
   const checklistTopRef = useRef<HTMLDivElement>(null);
+  const rowTrackerRef   = useRef<HTMLDivElement>(null);
 
   // ── Project manager — owns all IndexedDB state ─────────────────────────────
   const pm = useProjectManager({ steps, mounted });
@@ -134,6 +135,15 @@ export default function Home() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [lightboxIndex, uploadedImages.length]);
+
+  // Auto-scroll to RowTracker whenever it first appears (calibration complete or project load)
+  useEffect(() => {
+    if (!rowTrackerData) return;
+    const el = rowTrackerRef.current;
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
+  }, [rowTrackerData]);
 
   // ── Hydration — restore all state from localStorage on first mount ──────────
   useEffect(() => {
@@ -263,11 +273,18 @@ export default function Home() {
     }
   }
 
-  function handleCalibrationComplete(result: CalibrationResult) {
+  async function handleCalibrationComplete(result: CalibrationResult) {
     const img = uploadedImages[0];
     const imageSrc = img ? `data:${img.mimeType};base64,${img.base64}` : "";
-    setRowTrackerData({ imageSrc, rect: result.rect, rows: result.rows, stitches: result.stitches });
+    const trackerState = { imageSrc, rect: result.rect, rows: result.rows, stitches: result.stitches };
+    setRowTrackerData(trackerState);
     setShowCalibrator(false);
+    // Save as a project so progress survives page reloads and shows in the gallery
+    await pm.saveTrackerProject(
+      { ...trackerState, currentRow: 1 },
+      latestFilesRef.current.slice(0, 1),
+      lang,
+    );
   }
 
   function toggleStep(id: number) {
@@ -350,6 +367,19 @@ export default function Home() {
   function handleLoadProject(id: string) {
     const project = pm.handleLoadProject(id);
     if (!project) return;
+
+    if (project.type === "tracker" && project.trackerData) {
+      const { imageSrc, rect, rows, stitches, currentRow } = project.trackerData;
+      // Write to localStorage first so RowTracker's lazy initialiser picks it up on remount
+      try {
+        localStorage.setItem("knitstep_tracker", JSON.stringify({ imageSrc, rect, rows, stitches, currentRow }));
+      } catch {}
+      setRowTrackerData({ imageSrc, rect, rows, stitches });
+      setIsInputExpanded(false);
+      setShowProjectsModal(false);
+      return;
+    }
+
     setSteps(project.steps);
     setHasConverted(true);
     setIsInputExpanded(false);
@@ -609,7 +639,8 @@ export default function Home() {
       <AnimatePresence>
         {rowTrackerData && !showCalibrator && (
           <motion.div
-            key="row-tracker"
+            key={`row-tracker-${pm.currentProjectId ?? "local"}`}
+            ref={rowTrackerRef}
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
@@ -618,10 +649,14 @@ export default function Home() {
           >
             <RowTracker
               {...rowTrackerData}
+              lang={lang}
               onReset={() => {
                 setRowTrackerData(null);
                 localStorage.removeItem("knitstep_tracker");
                 setShowCalibrator(true);
+              }}
+              onRowChange={(row) => {
+                if (pm.currentProjectId) pm.updateTrackerProgress(pm.currentProjectId, row);
               }}
             />
           </motion.div>
@@ -647,8 +682,9 @@ export default function Home() {
         return null;
       })()}
 
-      {/* ── Checklist View — hidden for grid projects ── */}
+      {/* ── Checklist View — hidden for grid projects and in grid mode ── */}
       {(() => {
+        if (isGridMode) return null;
         const activeProject = pm.currentProjectId
           ? pm.projects.find((p) => p.id === pm.currentProjectId)
           : null;

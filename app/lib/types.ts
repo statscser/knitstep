@@ -41,6 +41,15 @@ export interface GridData {
   analysisReport?: string; // brief description of recognition difficulty
 }
 
+/** Persisted state for the manual row-tracker flow. */
+export interface TrackerData {
+  imageSrc: string;  // data URL of the chart image
+  rect: { tl: { x: number; y: number }; br: { x: number; y: number } };
+  rows: number;
+  stitches: number;
+  currentRow: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -51,8 +60,9 @@ export interface Project {
   originalFiles?: StoredFile[] | (Blob | File)[]; // v2: Blob/File (legacy); v3+: StoredFile[]
   availableSizes: string[];
   selectedSize: string;
-  type?: "instruction" | "grid";
+  type?: "instruction" | "grid" | "tracker";
   gridData?: GridData;
+  trackerData?: TrackerData;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "../lib/db";
 import {
   isStoredFile, getAvailableSizes, fileToStoredFile,
-  type Step, type Project, type GridData,
+  type Step, type Project, type GridData, type TrackerData,
 } from "../lib/types";
 import type { StoredFile } from "../lib/db";
 
@@ -274,6 +274,44 @@ export function useProjectManager({
       .catch((err) => console.error("[KnitStep] Failed to rename project:", err));
   }
 
+  /**
+   * Save a new tracker (manual calibration) project.
+   * The image file is serialised as StoredFile so the project gallery can show a thumbnail.
+   */
+  async function saveTrackerProject(trackerData: TrackerData, files: File[], lang: string) {
+    const now = Date.now();
+    const d   = new Date(now);
+    const projectName =
+      lang === "zh"
+        ? `${d.getMonth() + 1}月${d.getDate()}日 图解`
+        : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Chart`;
+
+    const storedFiles: StoredFile[] = files.length > 0
+      ? await Promise.all(files.map(fileToStoredFile))
+      : [];
+
+    const newProject: Project = {
+      id:             now.toString(),
+      name:           projectName,
+      steps:          [],
+      rowCount:       trackerData.rows,
+      lastUpdated:    now,
+      originalFiles:  storedFiles.length > 0 ? storedFiles : undefined,
+      availableSizes: [],
+      selectedSize:   "all",
+      type:           "tracker",
+      trackerData,
+    };
+
+    try {
+      await db.projects.put(newProject);
+    } catch (dbErr) {
+      console.error("[KnitStep] Failed to save tracker project:", dbErr);
+    }
+    setProjects((prev) => [newProject, ...prev]);
+    setCurrentProjectId(now.toString());
+  }
+
   /** Persist the current knitting row for a grid project. */
   function updateGridProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
@@ -288,6 +326,22 @@ export function useProjectManager({
     db.projects
       .update(id, { gridData: newGridData, lastUpdated: now })
       .catch((err) => console.error("[KnitStep] Failed to update grid progress:", err));
+  }
+
+  /** Persist the current row for a tracker project. */
+  function updateTrackerProgress(id: string, currentRow: number) {
+    const proj = projects.find((p) => p.id === id);
+    if (!proj?.trackerData) return;
+    const now            = Date.now();
+    const newTrackerData = { ...proj.trackerData, currentRow };
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id ? { ...p, trackerData: newTrackerData, lastUpdated: now } : p
+      )
+    );
+    db.projects
+      .update(id, { trackerData: newTrackerData, lastUpdated: now })
+      .catch((err) => console.error("[KnitStep] Failed to update tracker progress:", err));
   }
 
   return {
@@ -310,5 +364,7 @@ export function useProjectManager({
     handleDeleteProject,
     handleRenameProject,
     updateGridProgress,
+    saveTrackerProject,
+    updateTrackerProgress,
   };
 }

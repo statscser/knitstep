@@ -507,11 +507,13 @@ export default function ImportSection({
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.2 }}
                   >
-                    {/* Gallery header: count + clear all */}
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                        {uploadedImages.length} / {MAX_IMAGES} {lang === "zh" ? "张图片" : "images"}
-                      </span>
+                    {/* Gallery header: count (non-grid only) + clear all */}
+                    <div className={`flex items-center mb-2 ${isGridMode ? "justify-end" : "justify-between"}`}>
+                      {!isGridMode && (
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {uploadedImages.length} / {MAX_IMAGES} {lang === "zh" ? "张图片" : "images"}
+                        </span>
+                      )}
                       <button
                         onClick={() => { setUploadedImages([]); latestFilesRef.current = []; }}
                         className="text-xs font-medium"
@@ -645,17 +647,36 @@ export default function ImportSection({
                           exit={{ opacity: 0, y: -6 }}
                           transition={{ duration: 0.2 }}
                         >
-                          <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t.uploadTitle}</p>
-                          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{t.uploadSub}</p>
-                          {/* Thumb-sized tap target: min 44px height via py-3 */}
-                          <span
-                            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-full"
-                            style={{ background: "var(--morandi-sage)", color: "#fff", minHeight: "44px" }}
-                          >
-                            <Camera size={16} strokeWidth={2} />
-                            <FileText size={15} strokeWidth={2} />
-                            {t.uploadClick}
-                          </span>
+                          {isGridMode ? (
+                            <>
+                              <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>
+                                {lang === "zh" ? "上传格子图" : "Upload Chart"}
+                              </p>
+                              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                                {lang === "zh" ? "拍照或选择一张图片" : "Take a photo or choose an image"}
+                              </p>
+                              <span
+                                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-full"
+                                style={{ background: "var(--morandi-sage)", color: "#fff", minHeight: "44px" }}
+                              >
+                                <Camera size={16} strokeWidth={2} />
+                                {lang === "zh" ? "选择图片或拍照" : "Select or Take Photo"}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t.uploadTitle}</p>
+                              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{t.uploadSub}</p>
+                              <span
+                                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-full"
+                                style={{ background: "var(--morandi-sage)", color: "#fff", minHeight: "44px" }}
+                              >
+                                <Camera size={16} strokeWidth={2} />
+                                <FileText size={15} strokeWidth={2} />
+                                {t.uploadClick}
+                              </span>
+                            </>
+                          )}
                         </motion.div>
                       </AnimatePresence>
                     </div>

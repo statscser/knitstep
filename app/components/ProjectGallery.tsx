@@ -149,9 +149,15 @@ export default function ProjectGallery({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", paddingTop: "6px" }}>
               {projects.map((project, idx) => {
                 const isActive  = project.id === currentProjectId;
+                const isTracker = project.type === "tracker";
+                // Tracker projects: progress by row; instruction/grid projects: progress by checked steps
                 const checkable = project.steps.filter((s) => !s.isHeader);
-                const done      = checkable.filter((s) => s.checked).length;
-                const total     = checkable.length;
+                const done      = isTracker
+                  ? (project.trackerData?.currentRow ?? 1) - 1
+                  : checkable.filter((s) => s.checked).length;
+                const total     = isTracker
+                  ? (project.trackerData?.rows ?? 1)
+                  : checkable.length;
                 const pct       = total > 0 ? Math.round((done / total) * 100) : 0;
                 const date      = new Date(project.lastUpdated).toLocaleDateString(
                   lang === "zh" ? "zh-CN" : "en-US",
@@ -253,7 +259,9 @@ export default function ProjectGallery({
                       {total > 0 && (
                         <div style={{ marginTop: "4px" }}>
                           <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
-                            {lang === "zh" ? "进度" : "Progress"} {done}/{total}
+                            {isTracker
+                              ? (lang === "zh" ? `第 ${done + 1} 行 / 共 ${total} 行` : `Row ${done + 1} / ${total}`)
+                              : `${lang === "zh" ? "进度" : "Progress"} ${done}/${total}`}
                           </p>
                           <div style={{
                             width: "100%", height: "4px", borderRadius: "99px",
@@ -268,7 +276,7 @@ export default function ProjectGallery({
                         </div>
                       )}
 
-                      {/* Active badge + delete */}
+                      {/* Active / type badge + delete */}
                       <div className="flex items-center justify-between" style={{ marginTop: "4px" }}>
                         {isActive ? (
                           <span style={{
@@ -277,6 +285,14 @@ export default function ProjectGallery({
                             borderRadius: "99px", padding: "1px 7px",
                           }}>
                             {lang === "zh" ? "当前" : "Active"}
+                          </span>
+                        ) : isTracker ? (
+                          <span style={{
+                            fontSize: "10px", fontWeight: 700, letterSpacing: "0.03em",
+                            color: "var(--morandi-green)", background: "rgba(143,175,150,0.14)",
+                            borderRadius: "99px", padding: "1px 7px",
+                          }}>
+                            {lang === "zh" ? "行追踪" : "Tracker"}
                           </span>
                         ) : <span />}
                         <div onClick={(e) => e.stopPropagation()}>

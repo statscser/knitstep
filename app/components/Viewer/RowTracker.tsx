@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { CropRect } from "./GridCalibrator";
+import type { Lang } from "../../lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,7 +14,10 @@ export interface RowTrackerState {
 }
 
 interface RowTrackerProps extends RowTrackerState {
+  lang?: Lang;
   onReset: () => void;
+  /** Called whenever the active row changes — used to persist progress to the DB. */
+  onRowChange?: (row: number) => void;
 }
 
 interface PatternMeta {
@@ -32,7 +36,8 @@ const C_BORDER    = "#E0D4CA";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: RowTrackerProps) {
+export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh", onReset, onRowChange }: RowTrackerProps) {
+  const zh = lang === "zh";
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Row 1 is always the starting row (bottom of chart)
@@ -45,11 +50,14 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
 
   const [patternMeta, setPatternMeta] = useState<PatternMeta | null>(null);
 
-  // ── Persist all tracker state on change ────────────────────────────────────
+  // ── Persist all tracker state on change; notify parent for DB save ─────────
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ imageSrc, rect, rows, stitches, currentRow }));
     } catch {}
+    onRowChange?.(currentRow);
+  // onRowChange intentionally omitted — stable reference is caller's responsibility
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageSrc, rect, rows, stitches, currentRow]);
 
   // ── Silent AI analysis on mount ────────────────────────────────────────────
@@ -132,13 +140,13 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
           style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}` }}
         >
           <p className="text-xs font-bold uppercase tracking-wide" style={{ color: C_MUTED, letterSpacing: "0.05em" }}>
-            Pattern Reference
+            {zh ? "图案参考" : "Pattern Reference"}
           </p>
 
           {/* Symbol legend */}
           {Object.keys(patternMeta.legend).length > 0 && (
             <div>
-              <p className="text-xs font-semibold mb-2" style={{ color: C_MUTED }}>Symbols</p>
+              <p className="text-xs font-semibold mb-2" style={{ color: C_MUTED }}>{zh ? "符号说明" : "Symbols"}</p>
               <div className="flex flex-wrap gap-x-5 gap-y-2">
                 {Object.entries(patternMeta.legend).map(([sym, meaning]) => (
                   <span key={sym || "__plain"} className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -158,7 +166,7 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
           {/* Colors */}
           {Object.keys(patternMeta.colors).length > 0 && (
             <div>
-              <p className="text-xs font-semibold mb-2" style={{ color: C_MUTED }}>Colors</p>
+              <p className="text-xs font-semibold mb-2" style={{ color: C_MUTED }}>{zh ? "颜色" : "Colors"}</p>
               <div className="flex flex-wrap gap-x-5 gap-y-2">
                 {Object.entries(patternMeta.colors).map(([name, hex]) => (
                   <span key={name} className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -188,8 +196,8 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
         style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}`, color: C_MUTED }}
       >
         <span>
-          <span style={{ fontWeight: 700, color: C_TEXT }}>Row {currentRow}</span>
-          {" / "}{rows}
+          <span style={{ fontWeight: 700, color: C_TEXT }}>{zh ? `第 ${currentRow} 行` : `Row ${currentRow}`}</span>
+          {zh ? ` / 共 ${rows} 行` : ` / ${rows}`}
         </span>
         <div style={{ flex: 1, height: 5, borderRadius: 99, background: "var(--border)", overflow: "hidden" }}>
           <div style={{
@@ -200,69 +208,55 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
         <span style={{ fontWeight: 600, color: C_GREEN }}>{pct}%</span>
       </div>
 
-      {/* ── Calibrated image with overlays ── */}
+      {/* ── Outer: coordinate reference + button anchor (no overflow clipping) ── */}
       <div
         ref={containerRef}
-        className="relative w-full select-none rounded-2xl overflow-hidden"
-        style={{ border: `1.5px solid ${C_BORDER}`, background: "var(--bg-card)", cursor: "crosshair" }}
+        className="relative w-full select-none"
+        style={{ cursor: "crosshair" }}
         onClick={handleClick}
       >
-        <img
-          src={imageSrc}
-          alt="Knitting chart"
-          className="w-full h-auto block"
-          draggable={false}
-        />
+        {/* ── Inner: clips image + overlays to rounded corners ── */}
+        <div
+          className="relative w-full rounded-2xl overflow-hidden"
+          style={{ border: `1.5px solid ${C_BORDER}`, background: "var(--bg-card)" }}
+        >
+          <img
+            src={imageSrc}
+            alt="Knitting chart"
+            className="w-full h-auto block"
+            draggable={false}
+          />
 
-        {/* Dimmed overlay for completed rows (rows 1 … currentRow−1) */}
-        {currentRow > 1 && (
+          {/* Dimmed overlay for completed rows (rows 1 … currentRow−1) */}
+          {currentRow > 1 && (
+            <div style={{
+              position:   "absolute",
+              left:       `${barLeft}%`,
+              top:        `${dimTop}%`,
+              width:      `${barWidth}%`,
+              height:     `${dimHeight}%`,
+              background: "rgba(0,0,0,0.22)",
+              pointerEvents: "none",
+              transition: "height 0.15s ease, top 0.15s ease",
+            }} />
+          )}
+
+          {/* Current row: clear window with green border */}
           <div style={{
             position:   "absolute",
             left:       `${barLeft}%`,
-            top:        `${dimTop}%`,
+            top:        `${barTop}%`,
             width:      `${barWidth}%`,
-            height:     `${dimHeight}%`,
-            background: "rgba(0,0,0,0.22)",
+            height:     `${barHeight}%`,
+            border:     `2px solid ${C_GREEN}`,
+            borderRadius: 2,
+            boxSizing:  "border-box",
             pointerEvents: "none",
-            transition: "height 0.15s ease, top 0.15s ease",
+            transition: "top 0.15s ease",
           }} />
-        )}
-
-        {/* Current row: clear window with green border */}
-        <div style={{
-          position:   "absolute",
-          left:       `${barLeft}%`,
-          top:        `${barTop}%`,
-          width:      `${barWidth}%`,
-          height:     `${barHeight}%`,
-          border:     `2px solid ${C_GREEN}`,
-          borderRadius: 2,
-          boxSizing:  "border-box",
-          pointerEvents: "none",
-          transition: "top 0.15s ease",
-        }} />
-
-        {/* Row number pill anchored to the left edge of the current row */}
-        <div style={{
-          position:   "absolute",
-          left:       `calc(${barLeft}% + 4px)`,
-          top:        `${barTop}%`,
-          height:     `${barHeight}%`,
-          display:    "flex",
-          alignItems: "center",
-          pointerEvents: "none",
-          transition: "top 0.15s ease",
-        }}>
-          <span style={{
-            background: C_GREEN, color: "#fff",
-            fontSize: 10, fontWeight: 700,
-            padding: "1px 5px", borderRadius: 4, lineHeight: "14px",
-          }}>
-            {currentRow}
-          </span>
         </div>
 
-        {/* ── Floating Next button — aligned to current row midpoint ── */}
+        {/* ── Next button: outside the clip, aligned to rect right edge + row midpoint ── */}
         <button
           data-nav-btn
           onClick={(e) => { e.stopPropagation(); setCurrentRow(r => Math.min(rows, r + 1)); }}
@@ -270,23 +264,31 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
           aria-label="Next row"
           style={{
             position:  "absolute",
-            right:     8,
+            left:      `calc(${barLeft + barWidth}% + 8px)`,
             top:       `${rowMidY}%`,
             transform: "translateY(-50%)",
             zIndex:    30,
             transition: "top 0.15s ease",
-            width: 36, height: 36, borderRadius: 10,
+            display:   "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 1,
+            width: 38,
+            padding: "5px 0",
+            borderRadius: 10,
             background: currentRow >= rows ? "rgba(143,175,150,0.35)" : "rgba(143,175,150,0.92)",
             border: "none",
             color: "#fff",
-            fontSize: 16, fontWeight: 700, lineHeight: 1,
             cursor: currentRow >= rows ? "not-allowed" : "pointer",
             backdropFilter: "blur(6px)",
             boxShadow: currentRow >= rows ? "none" : "0 2px 10px rgba(100,145,110,0.40)",
-            display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
-          ↑
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.03em", lineHeight: 1 }}>
+            R{currentRow}
+          </span>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>↑</span>
         </button>
       </div>
 
@@ -300,12 +302,12 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
             fontFamily: "var(--font-body)", cursor: "pointer",
           }}
         >
-          Re-calibrate
+          {zh ? "重新标定" : "Re-calibrate"}
         </button>
       </div>
 
       <p className="text-xs text-center px-2" style={{ color: C_MUTED }}>
-        Click the chart to jump to any row · Tap ↑ to advance to the next row.
+        {zh ? "点击图表跳转到任意行 · 点击 ↑ 前进到下一行" : "Click the chart to jump to any row · Tap ↑ to advance to the next row."}
       </p>
     </div>
   );
