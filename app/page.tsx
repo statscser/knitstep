@@ -20,6 +20,7 @@ import ReferencePanel from "./components/ReferencePanel";
 import {
   Folder, ChevronUp, ChevronLeft, ChevronRight, FileText, X, Target,
 } from "lucide-react";
+import { Analytics } from "@vercel/analytics/next";
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
