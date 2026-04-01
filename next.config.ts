@@ -7,6 +7,7 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: ['192.168.1.159'],
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb',
