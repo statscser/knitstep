@@ -35,6 +35,7 @@ const C_BORDER    = "#E0D4CA";
 export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: RowTrackerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Row 1 is always the starting row (bottom of chart)
   const [currentRow, setCurrentRow] = useState<number>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
@@ -54,7 +55,6 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
   // ── Silent AI analysis on mount ────────────────────────────────────────────
   useEffect(() => {
     async function analyze() {
-      // Crop the chart area from the image for a tighter AI context
       const img = new Image();
       img.src = imageSrc;
       await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; });
@@ -104,10 +104,15 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
   const dimTop    = (rect.br.y - (currentRow - 1) * rowH) * 100;
   const dimHeight = (currentRow - 1) * rowH * 100;
 
+  // Vertical midpoint of the current row (for floating button alignment)
+  const rowMidY = barTop + barHeight / 2;
+
   // ── Click to jump to row ───────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLDivElement>) {
     const el = containerRef.current;
     if (!el) return;
+    // Ignore clicks that originate from the floating buttons
+    if ((e.target as Element).closest("[data-nav-btn]")) return;
     const { top, height } = el.getBoundingClientRect();
     const yNorm = (e.clientY - top) / height;
     if (yNorm < rect.tl.y || yNorm > rect.br.y) return;
@@ -119,133 +124,6 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
 
   return (
     <div className="w-full flex flex-col gap-4" style={{ fontFamily: "var(--font-body)" }}>
-
-      {/* ── Progress bar ── */}
-      <div
-        className="flex items-center gap-3 px-4 py-2 rounded-2xl text-xs"
-        style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}`, color: C_MUTED }}
-      >
-        <span>
-          <span style={{ fontWeight: 700, color: C_TEXT }}>Row {currentRow}</span>
-          {" / "}{rows}
-        </span>
-        <div style={{ flex: 1, height: 5, borderRadius: 99, background: "var(--border)", overflow: "hidden" }}>
-          <div style={{
-            height: "100%", width: `${pct}%`, borderRadius: 99,
-            background: C_GREEN, transition: "width 0.2s ease",
-          }} />
-        </div>
-        <span style={{ fontWeight: 600, color: C_GREEN }}>{pct}%</span>
-      </div>
-
-      {/* ── Calibrated image with overlays ── */}
-      <div
-        ref={containerRef}
-        className="relative w-full select-none rounded-2xl overflow-hidden"
-        style={{ border: `1.5px solid ${C_BORDER}`, background: "var(--bg-card)", cursor: "crosshair" }}
-        onClick={handleClick}
-      >
-        <img
-          src={imageSrc}
-          alt="Knitting chart"
-          className="w-full h-auto block"
-          draggable={false}
-        />
-
-        {/* Dimmed overlay for completed rows (rows 1 … currentRow−1) */}
-        {currentRow > 1 && (
-          <div style={{
-            position:   "absolute",
-            left:       `${barLeft}%`,
-            top:        `${dimTop}%`,
-            width:      `${barWidth}%`,
-            height:     `${dimHeight}%`,
-            background: "rgba(0,0,0,0.40)",
-            pointerEvents: "none",
-            transition: "height 0.15s ease, top 0.15s ease",
-          }} />
-        )}
-
-        {/* Current row: clear window with green border */}
-        <div style={{
-          position:   "absolute",
-          left:       `${barLeft}%`,
-          top:        `${barTop}%`,
-          width:      `${barWidth}%`,
-          height:     `${barHeight}%`,
-          border:     `2px solid ${C_GREEN}`,
-          borderRadius: 2,
-          boxSizing:  "border-box",
-          pointerEvents: "none",
-          transition: "top 0.15s ease",
-        }} />
-
-        {/* Row number pill anchored to the left edge of the current row */}
-        <div style={{
-          position:   "absolute",
-          left:       `calc(${barLeft}% + 4px)`,
-          top:        `${barTop}%`,
-          height:     `${barHeight}%`,
-          display:    "flex",
-          alignItems: "center",
-          pointerEvents: "none",
-          transition: "top 0.15s ease",
-        }}>
-          <span style={{
-            background: C_GREEN, color: "#fff",
-            fontSize: 10, fontWeight: 700,
-            padding: "1px 5px", borderRadius: 4, lineHeight: "14px",
-          }}>
-            {currentRow}
-          </span>
-        </div>
-      </div>
-
-      {/* ── Controls ── */}
-      <div
-        className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl flex-wrap"
-        style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}` }}
-      >
-        <button
-          onClick={onReset}
-          style={{
-            padding: "8px 14px", borderRadius: 12, border: `1.5px solid ${C_BORDER}`,
-            background: "var(--bg)", color: C_MUTED, fontSize: 13, fontWeight: 600,
-            fontFamily: "var(--font-body)", cursor: "pointer",
-          }}
-        >
-          Re-calibrate
-        </button>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCurrentRow(r => Math.max(1, r - 1))}
-            disabled={currentRow <= 1}
-            style={{
-              padding: "8px 20px", borderRadius: 12, border: `1.5px solid ${C_BORDER}`,
-              background: "var(--bg-card)", color: currentRow <= 1 ? C_MUTED : C_TEXT,
-              fontSize: 13, fontWeight: 600, fontFamily: "var(--font-body)",
-              cursor: currentRow <= 1 ? "not-allowed" : "pointer",
-              opacity: currentRow <= 1 ? 0.5 : 1,
-            }}
-          >
-            ← Prev
-          </button>
-          <button
-            onClick={() => setCurrentRow(r => Math.min(rows, r + 1))}
-            disabled={currentRow >= rows}
-            style={{
-              padding: "8px 20px", borderRadius: 12, border: "none",
-              background: currentRow >= rows ? "#A8C5AE" : C_GREEN,
-              color: "#fff", fontSize: 13, fontWeight: 700,
-              fontFamily: "var(--font-body)", cursor: currentRow >= rows ? "not-allowed" : "pointer",
-              boxShadow: currentRow >= rows ? "none" : "0 2px 8px rgba(143,175,150,0.35)",
-            }}
-          >
-            Next →
-          </button>
-        </div>
-      </div>
 
       {/* ── AI Pattern Reference card (appears silently when ready) ── */}
       {patternMeta && (
@@ -304,8 +182,130 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, onReset }: 
         </div>
       )}
 
+      {/* ── Progress bar ── */}
+      <div
+        className="flex items-center gap-3 px-4 py-2 rounded-2xl text-xs"
+        style={{ background: "var(--bg-card)", border: `1.5px solid ${C_BORDER}`, color: C_MUTED }}
+      >
+        <span>
+          <span style={{ fontWeight: 700, color: C_TEXT }}>Row {currentRow}</span>
+          {" / "}{rows}
+        </span>
+        <div style={{ flex: 1, height: 5, borderRadius: 99, background: "var(--border)", overflow: "hidden" }}>
+          <div style={{
+            height: "100%", width: `${pct}%`, borderRadius: 99,
+            background: C_GREEN, transition: "width 0.2s ease",
+          }} />
+        </div>
+        <span style={{ fontWeight: 600, color: C_GREEN }}>{pct}%</span>
+      </div>
+
+      {/* ── Calibrated image with overlays ── */}
+      <div
+        ref={containerRef}
+        className="relative w-full select-none rounded-2xl overflow-hidden"
+        style={{ border: `1.5px solid ${C_BORDER}`, background: "var(--bg-card)", cursor: "crosshair" }}
+        onClick={handleClick}
+      >
+        <img
+          src={imageSrc}
+          alt="Knitting chart"
+          className="w-full h-auto block"
+          draggable={false}
+        />
+
+        {/* Dimmed overlay for completed rows (rows 1 … currentRow−1) */}
+        {currentRow > 1 && (
+          <div style={{
+            position:   "absolute",
+            left:       `${barLeft}%`,
+            top:        `${dimTop}%`,
+            width:      `${barWidth}%`,
+            height:     `${dimHeight}%`,
+            background: "rgba(0,0,0,0.22)",
+            pointerEvents: "none",
+            transition: "height 0.15s ease, top 0.15s ease",
+          }} />
+        )}
+
+        {/* Current row: clear window with green border */}
+        <div style={{
+          position:   "absolute",
+          left:       `${barLeft}%`,
+          top:        `${barTop}%`,
+          width:      `${barWidth}%`,
+          height:     `${barHeight}%`,
+          border:     `2px solid ${C_GREEN}`,
+          borderRadius: 2,
+          boxSizing:  "border-box",
+          pointerEvents: "none",
+          transition: "top 0.15s ease",
+        }} />
+
+        {/* Row number pill anchored to the left edge of the current row */}
+        <div style={{
+          position:   "absolute",
+          left:       `calc(${barLeft}% + 4px)`,
+          top:        `${barTop}%`,
+          height:     `${barHeight}%`,
+          display:    "flex",
+          alignItems: "center",
+          pointerEvents: "none",
+          transition: "top 0.15s ease",
+        }}>
+          <span style={{
+            background: C_GREEN, color: "#fff",
+            fontSize: 10, fontWeight: 700,
+            padding: "1px 5px", borderRadius: 4, lineHeight: "14px",
+          }}>
+            {currentRow}
+          </span>
+        </div>
+
+        {/* ── Floating Next button — aligned to current row midpoint ── */}
+        <button
+          data-nav-btn
+          onClick={(e) => { e.stopPropagation(); setCurrentRow(r => Math.min(rows, r + 1)); }}
+          disabled={currentRow >= rows}
+          aria-label="Next row"
+          style={{
+            position:  "absolute",
+            right:     8,
+            top:       `${rowMidY}%`,
+            transform: "translateY(-50%)",
+            zIndex:    30,
+            transition: "top 0.15s ease",
+            width: 36, height: 36, borderRadius: 10,
+            background: currentRow >= rows ? "rgba(143,175,150,0.35)" : "rgba(143,175,150,0.92)",
+            border: "none",
+            color: "#fff",
+            fontSize: 16, fontWeight: 700, lineHeight: 1,
+            cursor: currentRow >= rows ? "not-allowed" : "pointer",
+            backdropFilter: "blur(6px)",
+            boxShadow: currentRow >= rows ? "none" : "0 2px 10px rgba(100,145,110,0.40)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          ↑
+        </button>
+      </div>
+
+      {/* ── Re-calibrate ── */}
+      <div className="flex justify-start">
+        <button
+          onClick={onReset}
+          style={{
+            padding: "6px 14px", borderRadius: 12, border: `1.5px solid ${C_BORDER}`,
+            background: "var(--bg)", color: C_MUTED, fontSize: 12, fontWeight: 600,
+            fontFamily: "var(--font-body)", cursor: "pointer",
+          }}
+        >
+          Re-calibrate
+        </button>
+      </div>
+
       <p className="text-xs text-center px-2" style={{ color: C_MUTED }}>
-        Click on the chart to jump to a row · Prev / Next to step through row by row.
+        Click the chart to jump to any row · Tap ↑ to advance to the next row.
       </p>
     </div>
   );

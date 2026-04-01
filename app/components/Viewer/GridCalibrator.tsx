@@ -179,6 +179,20 @@ export default function GridCalibrator({
   return (
     <div className="w-full flex flex-col gap-4" style={{ fontFamily: "var(--font-body)" }}>
 
+      {/* Preparation hint */}
+      <div
+        className="flex items-start gap-3 px-4 py-3 rounded-2xl text-sm"
+        style={{ background: "rgba(143,175,150,0.10)", border: "1.5px solid rgba(143,175,150,0.35)", color: C_TEXT }}
+      >
+        <span style={{ fontSize: 18, lineHeight: 1.3 }}>🧶</span>
+        <span style={{ lineHeight: 1.55 }}>
+          <strong style={{ color: "#5A7A62" }}>
+            {"框选图解区域，输入行数和针数，然后点击确认。"}
+          </strong>
+          {"拖动四角调整边框，让网格精准覆盖图解范围，再按行追踪你的编织进度。"}
+        </span>
+      </div>
+
       {/* Image + overlay */}
       <div
         ref={containerRef}
@@ -343,7 +357,7 @@ export default function GridCalibrator({
                 borderRadius: "50%", animation: "spin 0.7s linear infinite",
               }} />
             )}
-            {isLoading ? "Analyzing…" : "Start AI Analysis"}
+            {isLoading ? "Confirming…" : "Confirm & Start Tracking"}
           </button>
         </div>
       </div>

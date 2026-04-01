@@ -308,7 +308,7 @@ export default function ImportSection({
               >
                 {([
                   { value: false, label: lang === "zh" ? "文字图解" : "Checklist",   sub: lang === "zh" ? "适用于文字图片、PDF、视频" : "Text images, PDF, or Video" },
-                  { value: true,  label: lang === "zh" ? "编织格子图" : "Grid Chart", sub: lang === "zh" ? "专用于识别网格图片" : "Knitting grid images" },
+                  { value: true,  label: lang === "zh" ? "编织格子图" : "Grid Chart", sub: lang === "zh" ? "手动标定，按行追踪进度" : "Manual calibration & row tracking" },
                 ] as { value: boolean; label: string; sub: string }[]).map(({ value, label, sub }) => {
                   const active = isGridMode === value;
                   return (
@@ -684,7 +684,7 @@ export default function ImportSection({
                 }}
               />
 
-              {/* Convert button — only shown after image(s) are selected */}
+              {/* Action button — only shown after image(s) are selected */}
               <AnimatePresence>
                 {uploadedImages.length > 0 && (
                   <motion.div
@@ -693,61 +693,61 @@ export default function ImportSection({
                     exit={{ opacity: 0, y: 8 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <motion.button
-                      onClick={onConvert}
-                      disabled={isLoading}
-                      whileHover={isLoading ? {} : { scale: 1.05 }}
-                      whileTap={isLoading ? {} : { scale: 0.95 }}
-                      animate={isLoading ? { opacity: [1, 0.55, 1] } : { opacity: 1 }}
-                      transition={
-                        isLoading
-                          ? { opacity: { repeat: Infinity, duration: 1.4, ease: "easeInOut" } }
-                          : { type: "spring", stiffness: 380, damping: 16 }
-                      }
-                      className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
-                      style={{
-                        background:   "var(--morandi-pink)",
-                        color:        "#fff",
-                        borderRadius: RADIUS,
-                        boxShadow:    "0 4px 20px -6px rgba(231,200,197,0.7)",
-                        cursor:       isLoading ? "not-allowed" : "pointer",
-                        border:       "none",
-                      }}
-                    >
-                      <AnimatePresence mode="wait">
-                        <motion.span
-                          key={isLoading ? "loading" : lang + "-img-btn"}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -4 }}
-                          transition={{ duration: 0.18 }}
-                          className="block"
-                        >
-                          {isLoading ? (aiSubTab === "video" ? t.loadingVideoBtn : t.loadingBtn) : t.convertBtn}
-                        </motion.span>
-                      </AnimatePresence>
-                    </motion.button>
-
-                    {/* Calibration mode button — grid mode only */}
-                    {isGridMode && onCalibrate && (
+                    {isGridMode && onCalibrate ? (
+                      /* Grid mode: open the manual calibration wizard directly */
                       <motion.button
                         onClick={onCalibrate}
-                        disabled={isLoading}
-                        whileHover={isLoading ? {} : { scale: 1.02 }}
-                        whileTap={isLoading ? {} : { scale: 0.97 }}
-                        className="mt-2 w-full py-2.5 text-sm font-semibold tracking-wide flex items-center justify-center gap-2"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
                         style={{
-                          background:   "var(--bg)",
-                          color:        "var(--morandi-green)",
+                          background:   "var(--morandi-green)",
+                          color:        "#fff",
                           borderRadius: RADIUS,
-                          border:       "1.5px solid var(--morandi-green)",
-                          cursor:       isLoading ? "not-allowed" : "pointer",
-                          opacity:      isLoading ? 0.5 : 1,
+                          boxShadow:    "0 4px 20px -6px rgba(143,175,150,0.55)",
+                          cursor:       "pointer",
+                          border:       "none",
                         }}
                       >
-                        🎯 {lang === "zh" ? "精准校准（新）" : "Precise Calibration (New)"}
+                        {lang === "zh" ? "开始行追踪" : "Start Row Tracking"}
                       </motion.button>
-                    )}
+                    ) : !isGridMode ? (
+                      /* Non-grid (checklist / text) mode: AI conversion */
+                      <motion.button
+                        onClick={onConvert}
+                        disabled={isLoading}
+                        whileHover={isLoading ? {} : { scale: 1.05 }}
+                        whileTap={isLoading ? {} : { scale: 0.95 }}
+                        animate={isLoading ? { opacity: [1, 0.55, 1] } : { opacity: 1 }}
+                        transition={
+                          isLoading
+                            ? { opacity: { repeat: Infinity, duration: 1.4, ease: "easeInOut" } }
+                            : { type: "spring", stiffness: 380, damping: 16 }
+                        }
+                        className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
+                        style={{
+                          background:   "var(--morandi-pink)",
+                          color:        "#fff",
+                          borderRadius: RADIUS,
+                          boxShadow:    "0 4px 20px -6px rgba(231,200,197,0.7)",
+                          cursor:       isLoading ? "not-allowed" : "pointer",
+                          border:       "none",
+                        }}
+                      >
+                        <AnimatePresence mode="wait">
+                          <motion.span
+                            key={isLoading ? "loading" : lang + "-img-btn"}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.18 }}
+                            className="block"
+                          >
+                            {isLoading ? t.loadingBtn : t.convertBtn}
+                          </motion.span>
+                        </AnimatePresence>
+                      </motion.button>
+                    ) : null}
                   </motion.div>
                 )}
               </AnimatePresence>
