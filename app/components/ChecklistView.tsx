@@ -915,30 +915,6 @@ export default function ChecklistView({
                   )}
                 </AnimatePresence>
 
-                {/* ── Feedback link ── */}
-                <div className="no-print mt-6 flex items-center justify-center gap-2 flex-wrap">
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t.feedback}</span>
-                  <a
-                    href="https://xhslink.com/m/A11u8iECHmb"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-semibold underline underline-offset-2 transition-opacity hover:opacity-70"
-                    style={{ color: "var(--morandi-pink)" }}
-                  >
-                    小红书
-                  </a>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>·</span>
-                  <a
-                    href="https://www.instagram.com/gammeeloveknitting/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-semibold underline underline-offset-2 transition-opacity hover:opacity-70"
-                    style={{ color: "var(--morandi-pink)" }}
-                  >
-                    Instagram
-                  </a>
-                </div>
-
                 {/* ── Print-only footer ── */}
                 <div className="print-footer">
                   <span>{t.printFooter}</span>
