@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { parseInput, ACCESS_CODE, type Lang, type Step, type GridData } from "../lib/types";
 import { MOCK_GRID_PROJECT_DATA } from "../lib/mockGridData";
 
@@ -51,6 +51,7 @@ export function useAIConversion({
   const [isLoading, setIsLoading]                 = useState(false);
   const [error, setError]                         = useState<string | null>(null);
   const [rateLimitSecondsLeft, setRateLimitSecondsLeft] = useState<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // ── Countdown timer for rate-limit (429) ───────────────────────────────────
   useEffect(() => {
@@ -73,7 +74,18 @@ export function useAIConversion({
     errorUnknown:      lang === "zh" ? "解析失败，请稍后再试" : "Parsing failed. Please try again.",
   } as const;
 
+  function cancel() {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsLoading(false);
+  }
+
   async function convert() {
+    // Cancel any in-flight request before starting a new one
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     setError(null);
     setRateLimitSecondsLeft(null);
@@ -110,6 +122,7 @@ export function useAIConversion({
             method:  "POST",
             headers: { "Content-Type": "application/json" },
             body:    JSON.stringify({ videoUrl: videoUrl.trim(), language: lang, accessCode: ACCESS_CODE }),
+            signal:  controller.signal,
           });
         } else {
           const body =
@@ -127,6 +140,7 @@ export function useAIConversion({
             method:  "POST",
             headers: { "Content-Type": "application/json" },
             body:    JSON.stringify(body),
+            signal:  controller.signal,
           });
         }
 
@@ -159,6 +173,8 @@ export function useAIConversion({
           sourceFileIndex: s.sourceFileIndex,
         }));
       } catch (aiErr: any) {
+        // Always re-throw aborts so the outer catch can exit cleanly
+        if (aiErr?.name === "AbortError") throw aiErr;
         // AI / video tabs: re-throw so the outer catch shows the right message
         if (activeTab !== "text") throw aiErr;
         // Text tab: silently fall back to the line-by-line regex parser
@@ -169,6 +185,8 @@ export function useAIConversion({
       // ── Step 2: Delegate to caller (persist project + update page state) ───
       await onSuccess(parsed, filesToSave, undefined);
     } catch (err: any) {
+      // User cancelled — silently reset without showing an error
+      if (err?.name === "AbortError") return;
       const msg = err?.message ?? "";
       if      (msg === "QUOTA_EXCEEDED")           setRateLimitSecondsLeft(30);
       else if (msg === "FILE_TOO_LARGE")           setError(t.errorFileTooLarge);
@@ -184,12 +202,18 @@ export function useAIConversion({
       )                                            setError(t.errorGridFailed);
       else                                         setError(t.errorUnknown);
     } finally {
-      setIsLoading(false);
+      // Only clear loading if this controller is still the active one
+      // (a subsequent convert() call may have already replaced it)
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+        setIsLoading(false);
+      }
     }
   }
 
   return {
     convert,
+    cancel,
     isLoading,
     error,
     setError,

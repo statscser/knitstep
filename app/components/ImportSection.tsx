@@ -29,6 +29,7 @@ export interface ImportSectionProps {
   lightboxIndex: number | null;
   setLightboxIndex: (i: number | null) => void;
   onConvert: () => void;
+  onCancel: () => void;
   onClear: () => void;
   onFileUpload: (file: File, currentCount?: number) => Promise<void>;
   hasConverted: boolean;
@@ -70,6 +71,7 @@ export default function ImportSection({
   lightboxIndex,
   setLightboxIndex,
   onConvert,
+  onCancel,
   onClear,
   onFileUpload,
   hasConverted,
@@ -235,6 +237,30 @@ export default function ImportSection({
                   </motion.span>
                 </AnimatePresence>
               </motion.button>
+
+              {/* Cancel button — visible while AI is running */}
+              <AnimatePresence>
+                {isLoading && (
+                  <motion.button
+                    key="cancel-text"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.18 }}
+                    onClick={onCancel}
+                    className="mt-3 w-full py-2 text-sm font-medium"
+                    style={{
+                      background: "transparent",
+                      border: "1.5px solid var(--border)",
+                      borderRadius: RADIUS,
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {lang === "zh" ? "取消" : "Cancel"}
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               {/* 新增的清除按钮 */}
               {hasConverted && !isLoading && (
@@ -734,40 +760,66 @@ export default function ImportSection({
                       </motion.button>
                     ) : !isGridMode ? (
                       /* Non-grid (checklist / text) mode: AI conversion */
-                      <motion.button
-                        onClick={onConvert}
-                        disabled={isLoading}
-                        whileHover={isLoading ? {} : { scale: 1.05 }}
-                        whileTap={isLoading ? {} : { scale: 0.95 }}
-                        animate={isLoading ? { opacity: [1, 0.55, 1] } : { opacity: 1 }}
-                        transition={
-                          isLoading
-                            ? { opacity: { repeat: Infinity, duration: 1.4, ease: "easeInOut" } }
-                            : { type: "spring", stiffness: 380, damping: 16 }
-                        }
-                        className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
-                        style={{
-                          background:   "var(--morandi-pink)",
-                          color:        "#fff",
-                          borderRadius: RADIUS,
-                          boxShadow:    "0 4px 20px -6px rgba(231,200,197,0.7)",
-                          cursor:       isLoading ? "not-allowed" : "pointer",
-                          border:       "none",
-                        }}
-                      >
-                        <AnimatePresence mode="wait">
-                          <motion.span
-                            key={isLoading ? "loading" : lang + "-img-btn"}
-                            initial={{ opacity: 0, y: 4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -4 }}
-                            transition={{ duration: 0.18 }}
-                            className="block"
-                          >
-                            {isLoading ? t.loadingBtn : t.convertBtn}
-                          </motion.span>
+                      <>
+                        <motion.button
+                          onClick={onConvert}
+                          disabled={isLoading}
+                          whileHover={isLoading ? {} : { scale: 1.05 }}
+                          whileTap={isLoading ? {} : { scale: 0.95 }}
+                          animate={isLoading ? { opacity: [1, 0.55, 1] } : { opacity: 1 }}
+                          transition={
+                            isLoading
+                              ? { opacity: { repeat: Infinity, duration: 1.4, ease: "easeInOut" } }
+                              : { type: "spring", stiffness: 380, damping: 16 }
+                          }
+                          className="mt-5 w-full py-3.5 text-base font-semibold tracking-wide"
+                          style={{
+                            background:   "var(--morandi-pink)",
+                            color:        "#fff",
+                            borderRadius: RADIUS,
+                            boxShadow:    "0 4px 20px -6px rgba(231,200,197,0.7)",
+                            cursor:       isLoading ? "not-allowed" : "pointer",
+                            border:       "none",
+                          }}
+                        >
+                          <AnimatePresence mode="wait">
+                            <motion.span
+                              key={isLoading ? "loading" : lang + "-img-btn"}
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -4 }}
+                              transition={{ duration: 0.18 }}
+                              className="block"
+                            >
+                              {isLoading ? t.loadingBtn : t.convertBtn}
+                            </motion.span>
+                          </AnimatePresence>
+                        </motion.button>
+
+                        {/* Cancel button — visible while AI is running */}
+                        <AnimatePresence>
+                          {isLoading && (
+                            <motion.button
+                              key="cancel-ai"
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 4 }}
+                              transition={{ duration: 0.18 }}
+                              onClick={onCancel}
+                              className="mt-3 w-full py-2 text-sm font-medium"
+                              style={{
+                                background: "transparent",
+                                border: "1.5px solid var(--border)",
+                                borderRadius: RADIUS,
+                                color: "var(--text-muted)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {lang === "zh" ? "取消" : "Cancel"}
+                            </motion.button>
+                          )}
                         </AnimatePresence>
-                      </motion.button>
+                      </>
                     ) : null}
                   </motion.div>
                 )}

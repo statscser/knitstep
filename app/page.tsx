@@ -184,9 +184,28 @@ export default function Home() {
     // Load projects from IndexedDB; restore active project if found
     pm.loadProjects(savedProjectId, (project) => {
       pm.selectProject(project);
-      setSteps(project.steps);
-      setHasConverted(true);
       setIsInputExpanded(false);
+
+      if (project.type === "tracker") {
+        // Tracker project: show RowTracker only — no checklist.
+        // rowTrackerData is already populated by the separate knitstep_tracker
+        // useEffect; just make sure hasConverted stays false so the empty
+        // ChecklistView card never renders on top.
+        setSteps([]);
+        setHasConverted(false);
+      } else {
+        // Checklist / grid project: restore steps and mark as converted.
+        setSteps(project.steps);
+        setHasConverted(true);
+        // The separate tracker-loading useEffect may have already run and
+        // populated rowTrackerData from a stale knitstep_tracker key.
+        // Clear both state and localStorage so RowTracker never appears
+        // alongside a checklist or grid project after a page refresh.
+        setRowTrackerData(null);
+        try { localStorage.removeItem("knitstep_tracker"); } catch {}
+        setIsGridMode(false);
+        setShowCalibrator(false);
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -373,9 +392,11 @@ export default function Home() {
     const project = pm.handleLoadProject(id);
     if (!project) return;
 
-    // Clear whatever was showing before switching projects
+    // Clear whatever was showing before switching projects.
+    // Always reset grid-import state so no grid UI bleeds across project types.
     setRowTrackerData(null);
     setShowCalibrator(false);
+    setIsGridMode(false);
     setHasConverted(false);
     setSteps([]);
 
@@ -390,6 +411,11 @@ export default function Home() {
       setShowProjectsModal(false);
       return;
     }
+
+    // Non-tracker project: clear the tracker localStorage key so it doesn't
+    // reappear on the next page refresh (the separate tracker-loading useEffect
+    // runs on every mount and re-populates rowTrackerData from this key).
+    try { localStorage.removeItem("knitstep_tracker"); } catch {}
 
     setSteps(project.steps);
     setHasConverted(true);
@@ -608,6 +634,7 @@ export default function Home() {
         lightboxIndex={lightboxIndex}
         setLightboxIndex={setLightboxIndex}
         onConvert={ai.convert}
+        onCancel={ai.cancel}
         onClear={handleClear}
         onFileUpload={handleFileUpload}
         hasConverted={hasConverted}
@@ -694,12 +721,13 @@ export default function Home() {
         return null;
       })()}
 
-      {/* ── Checklist View — hidden for grid projects and in grid mode ── */}
+      {/* ── Checklist View — hidden for grid/tracker projects and in grid mode ── */}
       {(() => {
         if (isGridMode) return null;
         const activeProject = pm.currentProjectId
           ? pm.projects.find((p) => p.id === pm.currentProjectId)
           : null;
+        if (activeProject?.type === "tracker") return null;
         const isGridProject = hasConverted && activeProject?.type === "grid" && !!activeProject.gridData;
         if (isGridProject) return null;
         return <ChecklistView
