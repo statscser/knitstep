@@ -728,13 +728,16 @@ export default function Home() {
 
       {/* ── Checklist View — hidden for grid/tracker projects and in grid mode ── */}
       {(() => {
-        if (isGridMode) return null;
         const activeProject = pm.currentProjectId
           ? pm.projects.find((p) => p.id === pm.currentProjectId)
           : null;
         if (activeProject?.type === "tracker") return null;
         const isGridProject = hasConverted && activeProject?.type === "grid" && !!activeProject.gridData;
         if (isGridProject) return null;
+        // Only let the grid-mode toggle hide the checklist when no checklist
+        // project is already loaded — browsing upload options shouldn't affect it.
+        const hasActiveChecklist = hasConverted && activeProject?.type !== "grid";
+        if (isGridMode && !hasActiveChecklist) return null;
         return <ChecklistView
         lang={lang}
         t={t}
