@@ -8,10 +8,10 @@ if (!API_KEY) { console.error("❌ Set GEMINI_API_KEY env var before running.");
 
 // 2. 测试列表：看看哪个模型能跑通
 const MODELS_TO_TEST = [
-  "gemini-2.5-flash", // Current core model
+  "gemini-2.5-flash",
   "gemini-3-flash-preview",
+  "gemini-2.5-flash-lite",
   "gemini-3.1-flash-lite-preview",
-  "gemini-2.5-flash-lite" // 这是 2.5 系列中更轻量的一个
 ];
 
 async function runTest() {

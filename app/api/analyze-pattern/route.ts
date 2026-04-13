@@ -3,8 +3,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const MODELS_TO_TRY = [
   "gemini-2.5-flash",
+  "gemini-3-flash-preview",
   "gemini-2.5-flash-lite",
-  "gemini-2.0-flash",
+  "gemini-3.1-flash-lite-preview",
 ] as const;
 
 function buildPrompt(rows: number, stitches: number): string {
