@@ -43,16 +43,29 @@ function flattenSteps(items: any[]): ParsedStep[] {
         if (
           Array.isArray(item.sourceBox) &&
           item.sourceBox.length === 4 &&
-          item.sourceBox.every((v: unknown) => typeof v === "number" && isFinite(v))
+          item.sourceBox.every(
+            (v: unknown) => typeof v === "number" && isFinite(v),
+          )
         ) {
           step.sourceBox = item.sourceBox as [number, number, number, number];
         }
-        if (typeof item.sourceFileIndex === "number" && isFinite(item.sourceFileIndex)) {
+        if (
+          typeof item.sourceFileIndex === "number" &&
+          isFinite(item.sourceFileIndex)
+        ) {
           step.sourceFileIndex = Math.max(0, Math.floor(item.sourceFileIndex));
         }
         result.push(step);
       }
-      const subKeys = ["steps", "sub_steps", "subSteps", "substeps", "children", "instructions", "rows"];
+      const subKeys = [
+        "steps",
+        "sub_steps",
+        "subSteps",
+        "substeps",
+        "children",
+        "instructions",
+        "rows",
+      ];
       for (const key of subKeys) {
         if (Array.isArray(item[key]) && item[key].length > 0) {
           result.push(...flattenSteps(item[key]));
@@ -69,12 +82,12 @@ async function runGemini(
   images?: { base64: string; mimeType: string }[],
 ): Promise<ParsedStep[]> {
   const hasImages = images && images.length > 0;
-  const isMulti   = hasImages && images!.length > 1;
+  const isMulti = hasImages && images!.length > 1;
 
   const multiHeader = isMulti
-    ? (language === "zh"
-        ? "注意：以下提供了多张图片，它们是同一编织图解的连续部分。请按顺序分析所有图片，合并信息，生成一份连贯的、不重复的完整步骤清单。\n\n"
-        : "Note: You are provided with multiple images that represent sequential parts of a single knitting/crochet pattern. Please analyze them in order, merge the information, and produce one continuous, logical checklist without duplicating steps that might overlap between images.\n\n")
+    ? language === "zh"
+      ? "注意：以下提供了多张图片，它们是同一编织图解的连续部分。请按顺序分析所有图片，合并信息，生成一份连贯的、不重复的完整步骤清单。\n\n"
+      : "Note: You are provided with multiple images that represent sequential parts of a single knitting/crochet pattern. Please analyze them in order, merge the information, and produce one continuous, logical checklist without duplicating steps that might overlap between images.\n\n"
     : "";
 
   const prompt =
@@ -95,6 +108,46 @@ async function runGemini(
        5. 引返针法（短行/short rows）请按顺序逐步平铺，每一步作为独立的一行文字，不得嵌套。
        6. 章节标题（如"后片"、"袖子"、"领口"等逻辑分段）：单独作为一个步骤，设置 "isHeader": true，text 字段填写标题文字（不加任何前缀），不带行号。
 
+      [SYMBOL MAPPING REFERENCE / 编织符号说明参考]
+      1. 钩针符号与缩写 (Crochet Symbols & Abbreviations):
+      基础针法 (Basic Stitches):
+      CH / ○ → 锁针 (ch - chain stitch)
+      X / + → 短针 (sc - single crochet)
+      T → 中长针 (hdc - half double crochet)
+      F / I (带有斜杠) → 长针 (dc - double crochet)
+      E (带有双斜杠) → 长长针 (tr - treble crochet)
+      SL ST / . (黑点) → 引拔针 (sl st - slip stitch)
+      加减针与变化 (Increases & Decreases):
+      V → 加针 (inc - increase / 2 sc in 1)
+      W → 1针内织3针 (3 sc in 1)
+      A / ^ → 减针 (dec - decrease / 2 sc together)
+      M → 3针并1针 (3 sc together)
+      BLO → 仅钩后半针 (back loop only)
+      FLO → 仅钩前半针 (front loop only)
+      MR → 环形起针 (magic ring)
+      2. 棒针缩写与术语 (Knitting Abbreviations & Terms):
+      基础针法 (Basic Stitches):
+      K → 下针 (k - knit)
+      P → 上针 (p - purl)
+      减针 (Decreases):
+      k2tog → 左上二并一 (k2tog - knit 2 together)
+      ssk → 右上二并一 (ssk - slip, slip, knit)
+      p2tog → 上针二并一 (p2tog - purl 2 together)
+      skp → 拨收一行 (slip 1, knit 1, pass slipped stitch over)
+      加针 (Increases):
+      yo → 空针/挂针 (yo - yarn over)
+      M1 / M1L / M1R → 增加一针 (m1 - make one / left / right)
+      位置与移动 (Position & Movement):
+      sl → 滑针 (sl - slip stitch)
+      wyif → 线在前方 (wyif - with yarn in front)
+      wyib → 线在后方 (wyib - with yarn in back)
+      pm → 放置标记 (pm - place marker)
+      rep → 重复 (rep - repeat)
+      st(s) → 针数 (st - stitch/stitches)
+      3. 处理规则 (Processing Rules):
+      当识别到上述符号或缩写时，如有原始图例请直接引用，如果没有请优先将其转化为：“中文名称 (英文缩写)” 的格式。
+      如果在文字图解中看到数字（如：sc 6, k10），请解析为对应的动作及次数（如：短针 6次, 下针 10次）。
+
        【智能尺码 — Smart Sizing】：
        部分图解使用括号标注多尺码，例如"起 80 (90, 100) 针"对应 S (M, L) 码。
        如果图解包含多尺码：
@@ -110,7 +163,9 @@ async function runGemini(
        绝对禁止：嵌套数组、sub_steps、children、rows 或任何递归结构。
        text 字段只放中文翻译，original 字段只放英文原稿，两个字段分开，不要混合。
        如果原文本身已经是中文，则不需要 original 字段，只返回 text 字段即可。
-       ${hasImages ? `【视觉定位 — 必须执行】：
+       ${
+         hasImages
+           ? `【视觉定位 — 必须执行】：
        对每个步骤，使用视觉定位标注其在输入图片中的精确位置。
        "sourceBox" 字段：归一化坐标数组 [ymin, xmin, ymax, xmax]，取值范围 0-1000。横向覆盖整列文字宽度（全宽图解的 xmin 接近 0，xmax 接近 1000）。
        "sourceFileIndex" 字段：该步骤来自第几张图片（从 0 开始计数）。
@@ -129,8 +184,9 @@ async function runGemini(
           - sourceFileIndex 必须与提供图片的实际顺序严格对应（从 0 开始）。对于 3 页 PDF，第1页索引为 0，第2页为 1，以此类推。
        4. 跨行步骤 (Multi-line steps):
           - 若某个步骤跨越多行文字，只为第一行提供 sourceBox，以保证定位精度。
-       正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}` :
-       `正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}`}
+       正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all","sourceBox":[120,80,200,920],"sourceFileIndex":0}]}`
+           : `正确示例：{"steps":[{"text":"后片","isHeader":true},{"text":"第1行: 下针到底","original":"Row 1: knit all"},{"text":"袖子","isHeader":true},{"text":"第2行: 上针到底","original":"Row 2: purl all"}]}`
+       }
        ${hasImages ? "" : `\n       图解文本如下：\n       ${text}`}`
       : `You are a professional knitting pattern parser.
        ${hasImages ? "Analyze the knitting pattern image(s) and extract all instructions" : "Parse the following knitting pattern text"} into clear, actionable checklist steps.
@@ -148,6 +204,52 @@ async function runGemini(
        5. Section headings (e.g., "Back", "Sleeve", "Neckline", "Body") that mark a logical new phase: output as a single step with "isHeader": true. Put the heading text in the "text" field with no prefix or decoration.
        6. ONLY use the ${hasImages ? "image(s)" : "pattern text below"}. Do NOT invent any steps.
 
+      Here is the pure English version of the mapping and instructions for your system prompt. I have removed all Chinese characters and kept the terminology strictly to standard US Crochet and International Knitting terms.
+
+      [SYMBOL MAPPING REFERENCE]
+      Context: You are an expert assistant specialized in converting knitting and crochet patterns (images or text) into structured step-by-step instructions. You must maintain 100% accuracy in stitch identification.
+      1. Crochet Symbol & Abbreviation Mapping (US Terms):
+      Basic Stitches:
+      CH or ○ → Chain stitch (ch)
+      X or + → Single crochet (sc)
+      T → Half double crochet (hdc)
+      F or I (with slash) → Double crochet (dc)
+      E (with double slash) → Treble crochet (tr)
+      SL ST or . (dot) → Slip stitch (sl st)
+      Increases & Decreases:
+      V → Increase (inc)
+      W → 3 stitches in the same stitch (3 sc in 1)
+      A or ^ → Decrease (dec)
+      M → 3 stitches together (3 sc tog)
+      Special Techniques:
+      BLO → Back loop only (BLO)
+      FLO → Front loop only (FLO)
+      MR → Magic ring (MR)
+      2. Knitting Abbreviation & Term Mapping:
+      Basic Stitches:
+      K → Knit (k)
+      P → Purl (p)
+      Decreases:
+      k2tog → Knit 2 together (k2tog)
+      ssk → Slip, slip, knit (ssk)
+      p2tog → Purl 2 together (p2tog)
+      skp → Slip 1, knit 1, pass slipped stitch over (skp)
+      Increases:
+      yo → Yarn over (yo)
+      M1 / M1L / M1R → Make one / Left / Right (m1)
+      Movement & Notations:
+      sl → Slip stitch (sl)
+      wyif → With yarn in front (wyif)
+      wyib → With yarn in back (wyib)
+      pm → Place marker (pm)
+      rep → Repeat (rep)
+      st(s) → Stitch / Stitches (st)
+      3. Execution Instructions:
+      Output Format: Always output stitch names using the clear term followed by the abbreviation in parentheses. Example: Single crochet (sc) or Knit 2 together (k2tog).
+      Numerical Parsing: If a number follows a symbol or abbreviation (e.g., sc 6, k10), parse it as the action and the total count. Example: Single crochet 6 times or Knit 10 stitches.
+      Visual Grounding: When interpreting a grid or chart, refer strictly to this mapping to identify symbols within cells. If a symbol is ambiguous, select the most logical match based on whether the project is identified as Knitting or Crochet.
+      Language: Perform all analysis and output all text strictly in English.
+
        [SMART SIZING]:
        Many patterns list stitch counts for multiple sizes in parentheses, e.g., "Cast on 80 (90, 100) sts" for S (M, L).
        If the pattern contains multi-size variations:
@@ -161,7 +263,9 @@ async function runGemini(
        Regular step fields: "text" (string), optional "original" (string), optional "sizeMap" (object).
        Header step fields: "text" (string), "isHeader": true.
        NEVER use nested arrays, sub_steps, children, rows, or any recursive structure.
-       ${hasImages ? `[VISUAL GROUNDING — REQUIRED FOR IMAGE INPUT]:
+       ${
+         hasImages
+           ? `[VISUAL GROUNDING — REQUIRED FOR IMAGE INPUT]:
        For every step you generate, use visual grounding to identify its exact location in the source image.
        "sourceBox": a normalized bounding box array [ymin, xmin, ymax, xmax] where all values are integers from 0 to 1000. Cover the full text column width (xmin near 0, xmax near 1000 for full-width patterns).
        "sourceFileIndex": 0-based integer indicating which of the provided images the step was found on.
@@ -180,13 +284,16 @@ async function runGemini(
           - sourceFileIndex must correspond exactly to the 0-based order of the images provided. For a 3-page PDF, index 0 is page 1, index 1 is page 2, etc.
        4. Multi-line steps:
           - If a step spans multiple lines, only provide the sourceBox for the first line to maintain precision.
-       Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}` :
-       `Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}`}
+       Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts","sourceBox":[120,80,200,920],"sourceFileIndex":0},{"text":"Row 1: knit all","sourceBox":[210,80,290,920],"sourceFileIndex":0}]}`
+           : `Correct example: {"steps":[{"text":"Back","isHeader":true},{"text":"Cast on 80 sts"},{"text":"Row 1: knit all"},{"text":"Sleeve","isHeader":true},{"text":"Pick up 40 sts"}]}`
+       }
        ${hasImages ? "" : `\n       Pattern:\n       ${text}`}`);
 
   const contents = hasImages
     ? [
-        ...images!.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
+        ...images!.map((img) => ({
+          inlineData: { mimeType: img.mimeType, data: img.base64 },
+        })),
         prompt,
       ]
     : prompt;
@@ -196,7 +303,9 @@ async function runGemini(
 
   for (let i = 0; i < MODELS_TO_TRY.length; i++) {
     const modelName = MODELS_TO_TRY[i];
-    console.log(`[AI] Attempt ${i + 1}/${MODELS_TO_TRY.length} — model: ${modelName}`);
+    console.log(
+      `[AI] Attempt ${i + 1}/${MODELS_TO_TRY.length} — model: ${modelName}`,
+    );
 
     const model = genAI.getGenerativeModel({ model: modelName });
 
@@ -204,7 +313,9 @@ async function runGemini(
       const result = await model.generateContent(contents);
       const raw = result.response.text().trim();
 
-      console.log(`[AI] Raw response snippet (${modelName}): ${raw.slice(0, 100)}`);
+      console.log(
+        `[AI] Raw response snippet (${modelName}): ${raw.slice(0, 100)}`,
+      );
 
       const jsonStart = raw.indexOf("{");
       const jsonEnd = raw.lastIndexOf("}");
@@ -212,13 +323,14 @@ async function runGemini(
 
       console.timeEnd("AI_CONVERSION");
       return flattenSteps(parsed.steps ?? []);
-
     } catch (error: any) {
       lastError = error;
       const httpStatus = error.status ?? error.response?.status ?? "unknown";
       const errMessage = error.message ?? "";
       const errDetails = error.errorDetails ?? error.response?.data ?? null;
-      const msgLower = errMessage.toLowerCase() + JSON.stringify(errDetails ?? "").toLowerCase();
+      const msgLower =
+        errMessage.toLowerCase() +
+        JSON.stringify(errDetails ?? "").toLowerCase();
 
       const isPayloadTooLarge =
         httpStatus === 413 ||
@@ -235,15 +347,21 @@ async function runGemini(
       const is404 = httpStatus === 404 || errMessage.includes("404");
 
       if (is429) {
-        console.warn(`[AI] ${modelName} → 429 Rate Limit. Moving to next model.`);
+        console.warn(
+          `[AI] ${modelName} → 429 Rate Limit. Moving to next model.`,
+        );
         continue;
       }
       if (is404) {
-        console.warn(`[AI] ${modelName} → 404 Not Found. Moving to next model.`);
+        console.warn(
+          `[AI] ${modelName} → 404 Not Found. Moving to next model.`,
+        );
         continue;
       }
 
-      console.warn(`[AI] ${modelName} → unexpected error (${httpStatus}): ${errMessage}. Trying next model.`);
+      console.warn(
+        `[AI] ${modelName} → unexpected error (${httpStatus}): ${errMessage}. Trying next model.`,
+      );
     }
   }
 
@@ -266,14 +384,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, language, images, accessCode, isGridMode, promptVersion } = body as {
-      text: string;
-      language: "zh" | "en";
-      images?: { base64: string; mimeType: string }[];
-      accessCode?: string;
-      isGridMode?: boolean;
-      promptVersion?: string;
-    };
+    const { text, language, images, accessCode, isGridMode, promptVersion } =
+      body as {
+        text: string;
+        language: "zh" | "en";
+        images?: { base64: string; mimeType: string }[];
+        accessCode?: string;
+        isGridMode?: boolean;
+        promptVersion?: string;
+      };
 
     const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
     if (accessCode !== VALID_CODE) {
@@ -292,7 +411,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ steps });
   } catch (err: any) {
     const msg = err?.message ?? "UNKNOWN_ERROR";
-    const status = msg === "QUOTA_EXCEEDED" ? 429 : msg === "FILE_TOO_LARGE" ? 413 : 500;
+    const status =
+      msg === "QUOTA_EXCEEDED" ? 429 : msg === "FILE_TOO_LARGE" ? 413 : 500;
     return NextResponse.json({ error: msg }, { status });
   } finally {
     inFlight = false;
