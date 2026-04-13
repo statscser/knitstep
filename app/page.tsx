@@ -90,6 +90,11 @@ export default function Home() {
       setSteps(parsed);
       setHasConverted(true);
       setIsInputExpanded(false);
+      // Clear upload state so the input area is a clean slate for the next project
+      setUploadedImages([]);
+      setVideoUrl("");
+      setInputText("");
+      latestFilesRef.current = [];
       await pm.saveNewProject(parsed, files, lang, gridData);
       if (gridData?.confidence !== undefined) {
         setGridConfidenceModal({ confidence: gridData.confidence, analysisReport: gridData.analysisReport });
