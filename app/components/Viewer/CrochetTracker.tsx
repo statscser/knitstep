@@ -161,32 +161,57 @@ export default function CrochetTracker({
   // ── Circular SVG overlay ──────────────────────────────────────────────────
 
   /** Smooth closed SVG path from landmark points.
-   *  @param expandScale  Scale each point outward from (cx,cy) by this factor
-   *                      (1.0 = no change, 1.08 = 8% outward expansion).
-   *  Uses quadratic bezier curves through midpoints for a rounded result. */
+   *
+   *  Uses **interpolating** quadratic bezier segments: each expanded landmark
+   *  point lies exactly on the curve (not merely used as a bezier control handle),
+   *  so petal tips and other extremes are always fully covered.
+   *
+   *  @param expandScale  Radial scale factor from (cx,cy).  1.0 = no change.
+   *  @param expandPx     Additional fixed outward expansion in pixels (applied
+   *                      proportionally along the radial direction, capped so
+   *                      small inner rounds aren't blown out of proportion).
+   */
   function landmarkToPath(
-    lm: import("../../lib/types").CrochetLandmark,
+    lm: CrochetLandmark,
     cx = 0,
     cy = 0,
     expandScale = 1.0,
+    expandPx    = 0,
   ): string {
     const { w, h } = containerPx;
     const pts = lm.points;
     if (!pts || pts.length < 3) return "";
     const n = pts.length;
 
-    // Apply outward expansion in pixel space
-    const epx = (i: number) => (cx + (pts[i].x * w - cx) * expandScale).toFixed(1);
-    const epy = (i: number) => (cy + (pts[i].y * h - cy) * expandScale).toFixed(1);
-    const emx = (i: number, j: number) =>
-      (cx + (((pts[i].x + pts[j].x) / 2) * w - cx) * expandScale).toFixed(1);
-    const emy = (i: number, j: number) =>
-      (cy + (((pts[i].y + pts[j].y) / 2) * h - cy) * expandScale).toFixed(1);
+    // Move a pixel-space point radially outward from (cx, cy)
+    const expand = (px: number, py: number) => {
+      const dx = px - cx, dy = py - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      // Cap the px-based bonus at 20 % so tiny inner rounds stay proportional
+      const s = expandScale + Math.min(expandPx / dist, 0.20);
+      return { x: cx + dx * s, y: cy + dy * s };
+    };
 
-    let d = `M${emx(n - 1, 0)},${emy(n - 1, 0)}`;
+    // Expanded control points
+    const ep   = Array.from({ length: n }, (_, i) => expand(pts[i].x * w, pts[i].y * h));
+    // Midpoints between adjacent expanded points — these are the bezier start/end nodes
+    const mids = ep.map((p, i) => ({
+      x: (p.x + ep[(i + 1) % n].x) / 2,
+      y: (p.y + ep[(i + 1) % n].y) / 2,
+    }));
+
+    // Derive each bezier CONTROL POINT so the curve passes exactly THROUGH ep[i].
+    // From Q(0.5) = P0/4 + C/2 + P2/4 = ep[i]  →  C = 2·ep[i] − P0/2 − P2/2
+    const ctrl = ep.map((p, i) => {
+      const p0 = mids[(i - 1 + n) % n];
+      const p2 = mids[i];
+      return { x: 2 * p.x - p0.x / 2 - p2.x / 2, y: 2 * p.y - p0.y / 2 - p2.y / 2 };
+    });
+
+    const f = (v: number) => v.toFixed(1);
+    let d = `M${f(mids[n - 1].x)},${f(mids[n - 1].y)}`;
     for (let i = 0; i < n; i++) {
-      const next = (i + 1) % n;
-      d += ` Q${epx(i)},${epy(i)} ${emx(i, next)},${emy(i, next)}`;
+      d += ` Q${f(ctrl[i].x)},${f(ctrl[i].y)} ${f(mids[i].x)},${f(mids[i].y)}`;
     }
     return d + " Z";
   }
@@ -217,8 +242,8 @@ export default function CrochetTracker({
       (currentRow === 1 || (prevLm?.points?.length ?? 0) >= 3);
 
     const innerOfCurrent = currentRow > 1 ? outerR(currentRow - 1) : 0;
-    // Expand outer radius 8% outward to cover stitch tops even when AI undershoots
-    const outerOfCurrent = outerR(currentRow) * 1.08;
+    // Expand outer radius 14% outward; covers stitch tops even when AI undershoots
+    const outerOfCurrent = outerR(currentRow) * 1.14;
     const bandW = Math.max((outerOfCurrent - innerOfCurrent) * 1.4, 2);
 
     return (
@@ -228,18 +253,21 @@ export default function CrochetTracker({
       >
         {usePolygon ? (
           <>
-            {/* Dim inner area using the previous round's boundary polygon */}
+            {/* Dim inner area — exact boundary of the previous round */}
             {prevLm && prevLm.points && prevLm.points.length >= 3 && (
-              <path d={landmarkToPath(prevLm, cx, cy, 1.0)} fill="rgba(0,0,0,0.38)" />
+              <path d={landmarkToPath(prevLm, cx, cy, 1.0, 0)} fill="rgba(0,0,0,0.38)" />
             )}
-            {/* Highlight ring: outer path expanded ~8% outward so the band
-                always covers the stitch tops even when the AI undershoots */}
+            {/* Highlight ring:
+                  outer = current round expanded 10 % + 8 px → covers stitch tops/petal peaks
+                  inner cutout = previous round contracted to 0.96 → band is a bit wider inward too
+                Path passes THROUGH each landmark point (interpolating bezier), so petal
+                tips and corner peaks are always enclosed. */}
             {currentLm && currentLm.points && currentLm.points.length >= 3 && (
               <path
                 d={
-                  landmarkToPath(currentLm, cx, cy, 1.08) +
+                  landmarkToPath(currentLm, cx, cy, 1.10, 8) +
                   (prevLm && prevLm.points && prevLm.points.length >= 3
-                    ? " " + landmarkToPath(prevLm, cx, cy, 1.0)
+                    ? " " + landmarkToPath(prevLm, cx, cy, 0.96, 0)
                     : "")
                 }
                 fill={`rgba(143,175,150,0.42)`}
@@ -249,7 +277,7 @@ export default function CrochetTracker({
             {/* Subtle outlines for future rounds */}
             {sorted.map((lm) => {
               if (lm.rowNumber <= currentRow) return null;
-              const path = landmarkToPath(lm, cx, cy, 1.0);
+              const path = landmarkToPath(lm, cx, cy, 1.0, 0);
               if (!path) return null;
               return (
                 <path
