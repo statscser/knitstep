@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 export const maxDuration = 60;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const MODEL_NAME = "gemini-2.5-flash";
+const MODEL_NAME = "gemini-3-flash-preview";
 const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
 
 // ── VIDEO_TO_TEXT_PROMPT ──────────────────────────────────────────────────────

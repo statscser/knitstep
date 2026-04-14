@@ -7,11 +7,14 @@ const API_KEY = process.env.GEMINI_API_KEY;
 if (!API_KEY) { console.error("❌ Set GEMINI_API_KEY env var before running."); process.exit(1); }
 
 // 2. 测试列表：看看哪个模型能跑通
+// Crochet parsing: gemini-3.1-pro-preview → gemini-2.5-pro
+// Everything else: gemini-3-flash-preview → gemini-2.5-flash
+// parse-video:     gemini-3-flash-preview (single model, no fallback)
 const MODELS_TO_TEST = [
-  "gemini-2.5-flash",
+  "gemini-3.1-pro-preview",
+  "gemini-2.5-pro",
   "gemini-3-flash-preview",
-  "gemini-2.5-flash-lite",
-  "gemini-3.1-flash-lite-preview",
+  "gemini-2.5-flash",
 ];
 
 async function runTest() {
