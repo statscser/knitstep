@@ -26,11 +26,19 @@ interface Props {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const C_PINK   = "#D9A8A0";
+const C_PIN    = "#B85A50";   // deeper Morandi terracotta — conspicuous but still earthy
 const C_GREEN  = "#8FAF96";
 const C_MUTED  = "#9C8C7C";
 const C_TEXT   = "#3D3530";
 const C_BORDER = "#E0D4CA";
 const RADIUS   = "1.5rem";
+
+const PIN_KEYFRAMES = `
+@keyframes crochetPinRing {
+  0%   { transform: translate(-50%,-50%) scale(0.6); opacity: 0.75; }
+  100% { transform: translate(-50%,-50%) scale(3.2); opacity: 0;    }
+}
+`;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -211,6 +219,7 @@ export default function CrochetCalibrator({
             />
 
             {/* Crosshair / pin */}
+            <style>{PIN_KEYFRAMES}</style>
             {startPoint && (
               <div
                 style={{
@@ -222,26 +231,42 @@ export default function CrochetCalibrator({
                   zIndex:        10,
                 }}
               >
-                <div style={{ position: "relative", width: 28, height: 28 }}>
-                  {/* Horizontal arm */}
+                {/* Pulse ring 1 */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 14, height: 14, borderRadius: "50%",
+                  border: `2px solid ${C_PIN}`,
+                  animation: "crochetPinRing 1.6s ease-out infinite",
+                }} />
+                {/* Pulse ring 2 — staggered */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 14, height: 14, borderRadius: "50%",
+                  border: `2px solid ${C_PIN}`,
+                  animation: "crochetPinRing 1.6s ease-out 0.55s infinite",
+                }} />
+
+                <div style={{ position: "relative", width: 44, height: 44 }}>
+                  {/* Horizontal arm — white halo then coloured line */}
                   <div style={{
                     position: "absolute", top: "50%", left: 0, right: 0,
-                    height: 2, background: C_PINK, transform: "translateY(-50%)",
-                    boxShadow: "0 0 3px rgba(0,0,0,0.4)",
+                    height: 3, background: "#fff", transform: "translateY(-50%)",
+                    boxShadow: `0 0 0 1.5px ${C_PIN}`,
                   }} />
                   {/* Vertical arm */}
                   <div style={{
                     position: "absolute", left: "50%", top: 0, bottom: 0,
-                    width: 2, background: C_PINK, transform: "translateX(-50%)",
-                    boxShadow: "0 0 3px rgba(0,0,0,0.4)",
+                    width: 3, background: "#fff", transform: "translateX(-50%)",
+                    boxShadow: `0 0 0 1.5px ${C_PIN}`,
                   }} />
                   {/* Centre dot */}
                   <div style={{
                     position: "absolute", top: "50%", left: "50%",
                     transform: "translate(-50%, -50%)",
-                    width: 8, height: 8, borderRadius: "50%",
-                    background: C_PINK, border: "1.5px solid #fff",
-                    boxShadow: "0 0 4px rgba(0,0,0,0.35)",
+                    width: 11, height: 11, borderRadius: "50%",
+                    background: C_PIN,
+                    border: "2px solid #fff",
+                    boxShadow: `0 0 6px rgba(184,90,80,0.55)`,
                   }} />
                 </div>
               </div>

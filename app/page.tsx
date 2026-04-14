@@ -817,6 +817,13 @@ export default function Home() {
               lang={lang}
               onReset={() => {
                 if (crochetData?.mode) setLastCrochetMode(crochetData.mode);
+                // Restore image from stored data URL so the calibrator has an image to show
+                if (crochetData?.imageSrc) {
+                  const src = crochetData.imageSrc;
+                  const [header, base64] = src.split(",");
+                  const mimeType = header.split(":")[1]?.split(";")[0] ?? "image/jpeg";
+                  setUploadedImages([{ base64, mimeType, previewUrl: src }]);
+                }
                 setCrochetData(null);
                 localStorage.removeItem("knitstep_crochet");
                 setShowCrochetCalibrator(true);
