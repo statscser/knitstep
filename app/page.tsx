@@ -370,7 +370,7 @@ export default function Home() {
     setCrochetData(data);
     setShowCrochetCalibrator(false);
     setIsInputExpanded(false);
-    // Capture files before clearing (saveCrochetProject needs them)
+    // Capture files before clearing (needed when creating a new project)
     const filesToSave = latestFilesRef.current.slice(0, 1);
     // Clear input so the upload area is blank next time the user expands it
     setUploadedImages([]);
@@ -379,7 +379,15 @@ export default function Home() {
     // checklist on the next page refresh when this crochet project is active
     setSteps([]);
     setHasConverted(false);
-    await pm.saveCrochetProject(data, filesToSave, lang);
+
+    if (pm.currentProjectId) {
+      // Recalibration: update the existing project in place.
+      // Preserves the original cover image (originalFiles) and project name.
+      await pm.updateCrochetCalibration(pm.currentProjectId, data);
+    } else {
+      // First calibration: create a new project (includes the uploaded image as cover).
+      await pm.saveCrochetProject(data, filesToSave, lang);
+    }
   }
 
   async function handleCalibrationComplete(result: CalibrationResult) {

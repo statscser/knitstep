@@ -365,6 +365,26 @@ export function useProjectManager({
     setCurrentProjectId(now.toString());
   }
 
+  /**
+   * Update calibration data for an existing crochet project (recalibration flow).
+   * Preserves everything else — name, id, originalFiles (cover image), progress.
+   */
+  async function updateCrochetCalibration(id: string, crochetData: CrochetData) {
+    const now = Date.now();
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? { ...p, crochetData, rowCount: crochetData.totalRows, lastUpdated: now }
+          : p
+      )
+    );
+    try {
+      await db.projects.update(id, { crochetData, rowCount: crochetData.totalRows, lastUpdated: now });
+    } catch (dbErr) {
+      console.error("[KnitStep] Failed to update crochet calibration:", dbErr);
+    }
+  }
+
   /** Persist the current row/round for a crochet project. */
   function updateCrochetProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
@@ -420,6 +440,7 @@ export function useProjectManager({
     saveTrackerProject,
     updateTrackerProgress,
     saveCrochetProject,
+    updateCrochetCalibration,
     updateCrochetProgress,
   };
 }
