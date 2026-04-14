@@ -25,7 +25,10 @@ Rules:
 - yMin / yMax are normalized coordinates: 0.0 = very top of image, 1.0 = very bottom
 - Row 1 is the LOWEST row (nearest the bottom edge); highest row number is at the top
 - If row numbers are printed on the sides of the chart, use them
-- If no row numbers are visible, estimate row boundaries from the repeating stitch pattern
+- If no row numbers are visible, use ALL of the following signals to estimate row boundaries:
+  1. COLOR CHANGES: different yarn colors on different rows are a strong signal — each distinct color band is its own row or group of rows
+  2. STITCH TOPS: the straight horizontal line formed by the tops of double crochet (dc/长针) or half double crochet (hdc/中长针) symbols marks the top boundary of a row
+  3. CHAIN LINES: a horizontal chain (ch/锁针) line typically separates rows
 - Cover the full vertical range of the chart; do not leave gaps between rows
 
 Return ONLY valid JSON — no markdown, no commentary:
@@ -37,18 +40,24 @@ function buildCircularPrompt(cx: number, cy: number): string {
 
 The user has marked the center at (${cx.toFixed(2)}, ${cy.toFixed(2)}).
 
-### CRITICAL RULES TO FIX ALIGNMENT:
-1. **High-Density Tracing (50-60 points):** To ensure a smooth and accurate fit, you MUST provide between 50 and 60 points for each round. This density is required to capture corners and curves without looking "jagged" or "way off".
-2. **Prioritize Pixels over Symmetry:** Do NOT force a mathematically perfect circle or square. Instead, trace the ACTUAL outer perimeter of the stitches as they appear in the image. If the image is slightly tilted or asymmetric, your coordinates must follow that tilt.
-3. **Mandatory Round Numbers:** Use the printed numbers (1, 2, 3, 4, 5...) in the chart as mandatory anchors. Each round must encompass its corresponding number and all stitches in that layer.
-4. **No Merging:** Each concentric ring of stitches is one unique Round. Do not skip or combine them.
-5. **Clockwise Continuity:** All points must be in strict clockwise order to ensure the overlay renders correctly without intersecting itself.
+### BOUNDARY SIGNALS — use ALL of these to locate each round's outer edge:
+1. **Stitch tops (PRIMARY):** The outer boundary of a round is the straight line formed by the TOPS of double crochet (dc/长针) or half double crochet (hdc/中长针) symbols, combined with any chain (ch/锁针) spaces at that level. This is the most reliable visual signal.
+2. **Color changes:** If different rounds use different yarn colors, each color region is a distinct round. Treat color boundaries as hard evidence for a new round edge.
+3. **Printed round numbers:** Numbers (1, 2, 3 …) printed near the start of a round are mandatory anchors — if you see "5", your output must have at least 5 rounds.
+
+### TRACING RULES:
+4. **Shape-adaptive point count:** Use the minimum points needed to accurately describe the shape — typically 8-16 points. Do NOT over-sample; smooth shapes (circles, rounded squares) need fewer points than jagged or petal shapes.
+   - Near-circular round → 8-12 evenly spaced points
+   - Square/granny-square round → exactly 8 points (4 corners + 4 midpoints)
+   - Petal/flower round → 12-16 points capturing peak and valley of each petal
+5. **No merging:** Each concentric ring of stitches is one unique Round.
+6. **Clockwise order:** Points must trace the outer perimeter clockwise.
+7. **Full coverage:** Continue until the absolute outer edge of the chart.
 
 ### OUTPUT REQUIREMENTS:
 - Return ONLY valid JSON.
-- "points": An array of 50-60 normalized [x, y] coordinates (0.0 to 1.0) tracing the absolute outer boundary of the stitches.
-- "radius": The maximum distance from the center to the edge of this round.
-- "smooth lines" that based on points and radius try to draw a smooth lines (usually circle or square or simple but smooth lines) to draw the edges of the round to cover the whole round stitchs.
+- "points": normalized [x, y] coordinates (0.0 to 1.0) tracing the outer boundary.
+- "radius": maximum distance from center to the edge of this round.
 
 JSON Structure:
 {"totalRounds":<integer>,"landmarks":[{"rowNumber":1,"yMin":0,"yMax":0,"radius":0.08,"points":[{"x":...}]}]}`;

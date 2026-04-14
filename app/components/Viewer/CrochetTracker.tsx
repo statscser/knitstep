@@ -32,7 +32,13 @@ function getRowBand(
   landmarks: CrochetLandmark[],
 ): { top: number; height: number } {
   const lm = landmarks.find((l) => l.rowNumber === row);
-  if (lm) {
+  // Guard: yMin/yMax must both be finite numbers and yMax must exceed yMin
+  if (
+    lm &&
+    typeof lm.yMin === "number" && isFinite(lm.yMin) &&
+    typeof lm.yMax === "number" && isFinite(lm.yMax) &&
+    lm.yMax > lm.yMin
+  ) {
     return { top: lm.yMin * 100, height: (lm.yMax - lm.yMin) * 100 };
   }
   // Fallback: equal rows, row 1 = bottom, row N = top
@@ -55,14 +61,27 @@ export default function CrochetTracker({
   });
 
   const containerRef  = useRef<HTMLDivElement>(null);
+  const imgRef        = useRef<HTMLImageElement>(null);
   // Container pixel size — needed for SVG ring calculations
   const [containerPx, setContainerPx] = useState({ w: 0, h: 0 });
+
+  // Measure container immediately and keep in sync via ResizeObserver
+  function measureContainer() {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) {
+      setContainerPx({ w: rect.width, h: rect.height });
+    }
+  }
 
   // Observe container dimensions for circular-mode SVG
   useEffect(() => {
     if (data.mode !== "circular") return;
     const el = containerRef.current;
     if (!el) return;
+    // Seed with current size in case ResizeObserver fires late
+    measureContainer();
     const obs = new ResizeObserver(([entry]) => {
       setContainerPx({ w: entry.contentRect.width, h: entry.contentRect.height });
     });
@@ -301,9 +320,11 @@ export default function CrochetTracker({
         }}
       >
         <img
+          ref={imgRef}
           src={data.imageSrc}
           alt="crochet chart"
           draggable={false}
+          onLoad={measureContainer}
           style={{ width: "100%", display: "block" }}
         />
 
