@@ -281,7 +281,17 @@ export default function Home() {
       try {
         const compressed = await compressImage(file);
         setUploadedImages((prev) => [...prev, compressed]);
-        if (isCrochetMode) setShowCrochetCalibrator(true);
+        if (isCrochetMode) {
+          // Starting a new crochet calibration — clear whatever was active before
+          pm.setCurrentProjectId(null);
+          setSteps([]);
+          setHasConverted(false);
+          setRowTrackerData(null);
+          setCrochetData(null);
+          try { localStorage.removeItem("knitstep_crochet"); } catch {}
+          try { localStorage.removeItem("knitstep_tracker"); } catch {}
+          setShowCrochetCalibrator(true);
+        }
       } catch {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -289,7 +299,16 @@ export default function Home() {
           const [header, base64] = dataUrl.split(",");
           const mimeType = header.split(":")[1].split(";")[0];
           setUploadedImages((prev) => [...prev, { base64, mimeType, previewUrl: dataUrl }]);
-          if (isCrochetMode) setShowCrochetCalibrator(true);
+          if (isCrochetMode) {
+            pm.setCurrentProjectId(null);
+            setSteps([]);
+            setHasConverted(false);
+            setRowTrackerData(null);
+            setCrochetData(null);
+            try { localStorage.removeItem("knitstep_crochet"); } catch {}
+            try { localStorage.removeItem("knitstep_tracker"); } catch {}
+            setShowCrochetCalibrator(true);
+          }
         };
         reader.readAsDataURL(file);
       } finally {
@@ -348,7 +367,16 @@ export default function Home() {
     setCrochetData(data);
     setShowCrochetCalibrator(false);
     setIsInputExpanded(false);
-    await pm.saveCrochetProject(data, latestFilesRef.current.slice(0, 1), lang);
+    // Capture files before clearing (saveCrochetProject needs them)
+    const filesToSave = latestFilesRef.current.slice(0, 1);
+    // Clear input so the upload area is blank next time the user expands it
+    setUploadedImages([]);
+    latestFilesRef.current = [];
+    // Clear any stale checklist state so knitstep-data doesn't restore a ghost
+    // checklist on the next page refresh when this crochet project is active
+    setSteps([]);
+    setHasConverted(false);
+    await pm.saveCrochetProject(data, filesToSave, lang);
   }
 
   async function handleCalibrationComplete(result: CalibrationResult) {
