@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "../lib/db";
 import {
   isStoredFile, getAvailableSizes, fileToStoredFile,
-  type Step, type Project, type GridData, type TrackerData,
+  type Step, type Project, type GridData, type TrackerData, type CrochetData,
 } from "../lib/types";
 import type { StoredFile } from "../lib/db";
 
@@ -328,6 +328,59 @@ export function useProjectManager({
       .catch((err) => console.error("[KnitStep] Failed to update grid progress:", err));
   }
 
+  /**
+   * Save a new crochet chart project (calibrated + AI landmarks).
+   */
+  async function saveCrochetProject(crochetData: CrochetData, files: File[], lang: string) {
+    const now  = Date.now();
+    const d    = new Date(now);
+    const projectName =
+      lang === "zh"
+        ? `${d.getMonth() + 1}月${d.getDate()}日 钩针图解`
+        : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} Crochet`;
+
+    const storedFiles: StoredFile[] = files.length > 0
+      ? await Promise.all(files.map(fileToStoredFile))
+      : [];
+
+    const newProject: Project = {
+      id:             now.toString(),
+      name:           projectName,
+      steps:          [],
+      rowCount:       crochetData.totalRows,
+      lastUpdated:    now,
+      originalFiles:  storedFiles.length > 0 ? storedFiles : undefined,
+      availableSizes: [],
+      selectedSize:   "all",
+      type:           "crochet",
+      crochetData,
+    };
+
+    try {
+      await db.projects.put(newProject);
+    } catch (dbErr) {
+      console.error("[KnitStep] Failed to save crochet project:", dbErr);
+    }
+    setProjects((prev) => [newProject, ...prev]);
+    setCurrentProjectId(now.toString());
+  }
+
+  /** Persist the current row/round for a crochet project. */
+  function updateCrochetProgress(id: string, currentRow: number) {
+    const proj = projects.find((p) => p.id === id);
+    if (!proj?.crochetData) return;
+    const now              = Date.now();
+    const newCrochetData   = { ...proj.crochetData, currentRow };
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id ? { ...p, crochetData: newCrochetData, lastUpdated: now } : p
+      )
+    );
+    db.projects
+      .update(id, { crochetData: newCrochetData, lastUpdated: now })
+      .catch((err) => console.error("[KnitStep] Failed to update crochet progress:", err));
+  }
+
   /** Persist the current row for a tracker project. */
   function updateTrackerProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
@@ -366,5 +419,7 @@ export function useProjectManager({
     updateGridProgress,
     saveTrackerProject,
     updateTrackerProgress,
+    saveCrochetProject,
+    updateCrochetProgress,
   };
 }

@@ -60,9 +60,41 @@ export interface Project {
   originalFiles?: StoredFile[] | (Blob | File)[]; // v2: Blob/File (legacy); v3+: StoredFile[]
   availableSizes: string[];
   selectedSize: string;
-  type?: "instruction" | "grid" | "tracker";
+  type?: "instruction" | "grid" | "tracker" | "crochet";
   gridData?: GridData;
   trackerData?: TrackerData;
+  crochetData?: CrochetData;
+}
+
+// ─── Crochet Chart types ──────────────────────────────────────────────────────
+
+export type CrochetMode = "circular" | "flat";
+export type CrochetStartCorner = "bottom-left" | "bottom-right";
+
+/** Position of one row/round as detected by AI, in normalized [0,1] image coords. */
+export interface CrochetLandmark {
+  rowNumber: number;
+  /** Flat mode: top edge of the row band (0 = image top, 1 = image bottom). */
+  yMin: number;
+  /** Flat mode: bottom edge of the row band. */
+  yMax: number;
+  /** Circular mode: outer radius as fraction of image's shorter dimension. */
+  radius?: number;
+  /** Circular mode: key boundary points tracing the outer perimeter of this round.
+   *  Normalized image coordinates (0 = left/top, 1 = right/bottom).
+   *  When present, used instead of `radius` to draw non-circular ring shapes. */
+  points?: { x: number; y: number }[];
+}
+
+export interface CrochetData {
+  imageSrc: string;
+  mode: CrochetMode;
+  /** Normalized [0,1] — center point (circular) or start-corner marker (flat). */
+  startPoint: { x: number; y: number };
+  startCorner?: CrochetStartCorner;
+  landmarks: CrochetLandmark[];
+  currentRow: number;
+  totalRows: number;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────

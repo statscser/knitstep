@@ -43,9 +43,11 @@ export interface ImportSectionProps {
   setErrorMsg: (msg: string | null) => void;
   isGridMode: boolean;
   setIsGridMode: (v: boolean) => void;
+  isCrochetMode: boolean;
+  setIsCrochetMode: (v: boolean) => void;
   promptVersion: PromptVersion;
   setPromptVersion: (v: PromptVersion) => void;
-  /** Optional: triggers the manual calibration flow */
+  /** Optional: triggers the manual calibration flow (grid or crochet) */
   onCalibrate?: () => void;
 }
 
@@ -85,6 +87,8 @@ export default function ImportSection({
   setErrorMsg,
   isGridMode,
   setIsGridMode,
+  isCrochetMode,
+  setIsCrochetMode,
   promptVersion,
   setPromptVersion,
   onCalibrate,
@@ -327,26 +331,40 @@ export default function ImportSection({
               exit={{ opacity: 0, x: -14 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
-              {/* ── Checklist / Grid Chart mode toggle ── */}
+              {/* ── Checklist / Grid Chart / Crochet Chart mode toggle ── */}
               <div
                 className="flex mb-4 rounded-xl p-0.5"
                 style={{ background: "var(--bg)", border: "1.5px solid var(--border)" }}
               >
                 {([
-                  { value: false, label: lang === "zh" ? "文字图解" : "Checklist",   sub: lang === "zh" ? "适用于文字图片、PDF、视频" : "Text images, PDF, or Video" },
-                  { value: true,  label: lang === "zh" ? "编织格子图" : "Grid Chart", sub: lang === "zh" ? "手动标定，按行追踪进度" : "Manual calibration & row tracking" },
-                ] as { value: boolean; label: string; sub: string }[]).map(({ value, label, sub }) => {
-                  const active = isGridMode === value;
+                  {
+                    grid: false, crochet: false,
+                    label: lang === "zh" ? "文字图解"   : "Checklist",
+                    sub:   lang === "zh" ? "文字图片、PDF、视频" : "Text, PDF, or Video",
+                  },
+                  {
+                    grid: true,  crochet: false,
+                    label: lang === "zh" ? "编织格子图" : "Grid Chart",
+                    sub:   lang === "zh" ? "手动标定，按行追踪"  : "Manual row tracking",
+                  },
+                  {
+                    grid: false, crochet: true,
+                    label: lang === "zh" ? "钩针图解"   : "Crochet Chart",
+                    sub:   lang === "zh" ? "圈织/片织追踪"       : "Circular or flat",
+                  },
+                ]).map(({ grid, crochet, label, sub }) => {
+                  const active = isGridMode === grid && isCrochetMode === crochet;
                   return (
                     <button
-                      key={String(value)}
+                      key={`${grid}-${crochet}`}
                       onClick={() => {
-                        setIsGridMode(value);
+                        setIsGridMode(grid);
+                        setIsCrochetMode(crochet);
                         setUploadedImages([]);
                         latestFilesRef.current = [];
                         setVideoUrl("");
                         setErrorMsg(null);
-                        if (value) setAiSubTab("photo"); // grid mode only supports photo
+                        if (grid || crochet) setAiSubTab("photo");
                       }}
                       className="flex-1 flex flex-col items-center py-2 rounded-lg transition-all duration-200"
                       style={{
@@ -367,7 +385,7 @@ export default function ImportSection({
               </div>
 
               {/* ── KnitStep Lab: prompt version selector (grid mode only) ── */}
-              {ENABLE_PROMPT_LAB && isGridMode && (
+              {ENABLE_PROMPT_LAB && isGridMode && !isCrochetMode && (
                 <div className="mb-4 flex flex-col gap-1.5">
                   <label
                     className="text-xs font-semibold tracking-wide uppercase"
@@ -399,8 +417,8 @@ export default function ImportSection({
                 </div>
               )}
 
-              {/* ── Photo / Video sub-tab toggle (hidden in grid mode) ── */}
-              {!isGridMode && (
+              {/* ── Photo / Video sub-tab toggle (hidden in grid/crochet mode) ── */}
+              {!isGridMode && !isCrochetMode && (
               <div className="flex gap-2 mb-4">
                 {(["photo", "video"] as const).map((sub) => {
                   const active = aiSubTab === sub;
@@ -533,9 +551,9 @@ export default function ImportSection({
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.2 }}
                   >
-                    {/* Gallery header: count (non-grid only) + clear all */}
-                    <div className={`flex items-center mb-2 ${isGridMode ? "justify-end" : "justify-between"}`}>
-                      {!isGridMode && (
+                    {/* Gallery header: count (checklist mode only) + clear all */}
+                    <div className={`flex items-center mb-2 ${isGridMode || isCrochetMode ? "justify-end" : "justify-between"}`}>
+                      {!isGridMode && !isCrochetMode && (
                         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                           {uploadedImages.length} / {MAX_IMAGES} {lang === "zh" ? "张图片" : "images"}
                         </span>
@@ -607,8 +625,8 @@ export default function ImportSection({
                         </div>
                       ))}
 
-                      {/* "Add more" tile — hidden in grid mode (1 image max) */}
-                      {!isGridMode && uploadedImages.length < MAX_IMAGES && (
+                      {/* "Add more" tile — hidden in grid/crochet mode (1 image max) */}
+                      {!isGridMode && !isCrochetMode && uploadedImages.length < MAX_IMAGES && (
                         <label
                           htmlFor="file-upload"
                           className="flex-shrink-0 flex items-center justify-center rounded-xl cursor-pointer"
@@ -649,7 +667,7 @@ export default function ImportSection({
                       e.currentTarget.style.borderColor = "var(--morandi-sage)";
                       e.currentTarget.style.background  = "var(--bg)";
                       const files = Array.from(e.dataTransfer.files ?? []);
-                      const limit = isGridMode ? 1 : MAX_IMAGES;
+                      const limit = (isGridMode || isCrochetMode) ? 1 : MAX_IMAGES;
                       const startCount = uploadedImages.length;
                       const available = limit - startCount;
                       if (files.length > available) setErrorMsg(t.errorMaxImages);
@@ -689,6 +707,22 @@ export default function ImportSection({
                                 {lang === "zh" ? "选择图片或拍照" : "Select or Take Photo"}
                               </span>
                             </>
+                          ) : isCrochetMode ? (
+                            <>
+                              <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>
+                                {lang === "zh" ? "上传钩针图解" : "Upload Crochet Chart"}
+                              </p>
+                              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                                {lang === "zh" ? "拍照或选择一张图片" : "Take a photo or choose an image"}
+                              </p>
+                              <span
+                                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-full"
+                                style={{ background: "var(--morandi-sage)", color: "#fff", minHeight: "44px" }}
+                              >
+                                <Camera size={16} strokeWidth={2} />
+                                {lang === "zh" ? "选择图片或拍照" : "Select or Take Photo"}
+                              </span>
+                            </>
                           ) : (
                             <>
                               <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t.uploadTitle}</p>
@@ -715,12 +749,12 @@ export default function ImportSection({
               <input
                 id="file-upload"
                 type="file"
-                accept={isGridMode ? "image/*" : "image/*,application/pdf"}
-                multiple={!isGridMode}
+                accept={(isGridMode || isCrochetMode) ? "image/*" : "image/*,application/pdf"}
+                multiple={!isGridMode && !isCrochetMode}
                 className="hidden"
                 onChange={async (e) => {
                   const files = Array.from(e.target.files ?? []);
-                  const limit = isGridMode ? 1 : MAX_IMAGES;
+                  const limit = (isGridMode || isCrochetMode) ? 1 : MAX_IMAGES;
                   const startCount = uploadedImages.length;
                   const available = limit - startCount;
                   if (files.length > available) setErrorMsg(t.errorMaxImages);
@@ -740,8 +774,8 @@ export default function ImportSection({
                     exit={{ opacity: 0, y: 8 }}
                     transition={{ duration: 0.2 }}
                   >
-                    {isGridMode && onCalibrate ? (
-                      /* Grid mode: open the manual calibration wizard directly */
+                    {(isGridMode || isCrochetMode) && onCalibrate ? (
+                      /* Grid / Crochet mode: open the calibration wizard */
                       <motion.button
                         onClick={onCalibrate}
                         whileHover={{ scale: 1.05 }}
@@ -756,9 +790,11 @@ export default function ImportSection({
                           border:       "none",
                         }}
                       >
-                        {lang === "zh" ? "开始行追踪" : "Start Row Tracking"}
+                        {isCrochetMode
+                          ? (lang === "zh" ? "开始 AI 标定" : "Start Calibration")
+                          : (lang === "zh" ? "开始行追踪"   : "Start Row Tracking")}
                       </motion.button>
-                    ) : !isGridMode ? (
+                    ) : !isGridMode && !isCrochetMode ? (
                       /* Non-grid (checklist / text) mode: AI conversion */
                       <>
                         <motion.button

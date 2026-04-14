@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   dict, renderStepText, compressImage,
   ACCESS_CODE, MAX_IMAGES,
-  type Lang, type Step,
+  type Lang, type Step, type CrochetData,
 } from "./lib/types";
 import { DEFAULT_PROMPT_VERSION, type PromptVersion } from "./lib/prompts";
 import { useProjectManager } from "./hooks/useProjectManager";
@@ -15,6 +15,8 @@ import ChecklistView  from "./components/ChecklistView";
 import GridView       from "./components/Viewer/GridView";
 import GridCalibrator, { type CalibrationResult } from "./components/Viewer/GridCalibrator";
 import RowTracker, { type RowTrackerState } from "./components/Viewer/RowTracker";
+import CrochetCalibrator, { type CrochetCalibrationResult } from "./components/Viewer/CrochetCalibrator";
+import CrochetTracker from "./components/Viewer/CrochetTracker";
 import ProjectGallery from "./components/ProjectGallery";
 import ReferencePanel from "./components/ReferencePanel";
 import {
@@ -57,10 +59,14 @@ export default function Home() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showCalibrator, setShowCalibrator] = useState(false);
   const [rowTrackerData, setRowTrackerData] = useState<RowTrackerState | null>(null);
+  const [isCrochetMode, setIsCrochetMode]         = useState(false);
+  const [showCrochetCalibrator, setShowCrochetCalibrator] = useState(false);
+  const [crochetData, setCrochetData]             = useState<CrochetData | null>(null);
   const touchStartX    = useRef<number | null>(null);
   const latestFilesRef = useRef<File[]>([]);
-  const checklistTopRef = useRef<HTMLDivElement>(null);
-  const rowTrackerRef   = useRef<HTMLDivElement>(null);
+  const checklistTopRef  = useRef<HTMLDivElement>(null);
+  const rowTrackerRef    = useRef<HTMLDivElement>(null);
+  const crochetTrackerRef = useRef<HTMLDivElement>(null);
 
   // ── Project manager — owns all IndexedDB state ─────────────────────────────
   const pm = useProjectManager({ steps, mounted });
@@ -116,6 +122,16 @@ export default function Home() {
     } catch {}
   }, []);
 
+  // Load persisted crochet tracker from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("knitstep_crochet") ?? "{}");
+      if (saved.imageSrc && saved.mode && typeof saved.totalRows === "number") {
+        setCrochetData(saved as CrochetData);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     const onScroll = () => setShowBackToTop(window.scrollY > 320);
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -151,6 +167,15 @@ export default function Home() {
       setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     }
   }, [rowTrackerData]);
+
+  // Auto-scroll to CrochetTracker when it first appears
+  useEffect(() => {
+    if (!crochetData) return;
+    const el = crochetTrackerRef.current;
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
+  }, [crochetData]);
 
   // ── Hydration — restore all state from localStorage on first mount ──────────
   useEffect(() => {
@@ -193,23 +218,29 @@ export default function Home() {
 
       if (project.type === "tracker") {
         // Tracker project: show RowTracker only — no checklist.
-        // rowTrackerData is already populated by the separate knitstep_tracker
-        // useEffect; just make sure hasConverted stays false so the empty
-        // ChecklistView card never renders on top.
         setSteps([]);
         setHasConverted(false);
+        setCrochetData(null);
+        try { localStorage.removeItem("knitstep_crochet"); } catch {}
+      } else if (project.type === "crochet") {
+        // Crochet project: show CrochetTracker only — no checklist.
+        // crochetData is already populated by the separate knitstep_crochet useEffect.
+        setSteps([]);
+        setHasConverted(false);
+        setRowTrackerData(null);
+        try { localStorage.removeItem("knitstep_tracker"); } catch {}
       } else {
         // Checklist / grid project: restore steps and mark as converted.
         setSteps(project.steps);
         setHasConverted(true);
-        // The separate tracker-loading useEffect may have already run and
-        // populated rowTrackerData from a stale knitstep_tracker key.
-        // Clear both state and localStorage so RowTracker never appears
-        // alongside a checklist or grid project after a page refresh.
         setRowTrackerData(null);
+        setCrochetData(null);
         try { localStorage.removeItem("knitstep_tracker"); } catch {}
+        try { localStorage.removeItem("knitstep_crochet"); } catch {}
         setIsGridMode(false);
+        setIsCrochetMode(false);
         setShowCalibrator(false);
+        setShowCrochetCalibrator(false);
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -250,6 +281,7 @@ export default function Home() {
       try {
         const compressed = await compressImage(file);
         setUploadedImages((prev) => [...prev, compressed]);
+        if (isCrochetMode) setShowCrochetCalibrator(true);
       } catch {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -257,6 +289,7 @@ export default function Home() {
           const [header, base64] = dataUrl.split(",");
           const mimeType = header.split(":")[1].split(";")[0];
           setUploadedImages((prev) => [...prev, { base64, mimeType, previewUrl: dataUrl }]);
+          if (isCrochetMode) setShowCrochetCalibrator(true);
         };
         reader.readAsDataURL(file);
       } finally {
@@ -297,6 +330,25 @@ export default function Home() {
       setCodeError(true);
       setTimeout(() => setCodeError(false), 600);
     }
+  }
+
+  async function handleCrochetCalibrationComplete(result: CrochetCalibrationResult) {
+    const img = uploadedImages[0];
+    const imageSrc = img ? `data:${img.mimeType};base64,${img.base64}` : "";
+    const data: CrochetData = {
+      imageSrc,
+      mode:        result.mode,
+      startPoint:  result.startPoint,
+      startCorner: result.startCorner,
+      landmarks:   result.landmarks,
+      currentRow:  1,
+      totalRows:   result.totalRows > 0 ? result.totalRows : 1,
+    };
+    try { localStorage.setItem("knitstep_crochet", JSON.stringify(data)); } catch {}
+    setCrochetData(data);
+    setShowCrochetCalibrator(false);
+    setIsInputExpanded(false);
+    await pm.saveCrochetProject(data, latestFilesRef.current.slice(0, 1), lang);
   }
 
   async function handleCalibrationComplete(result: CalibrationResult) {
@@ -397,30 +449,42 @@ export default function Home() {
     const project = pm.handleLoadProject(id);
     if (!project) return;
 
-    // Clear whatever was showing before switching projects.
-    // Always reset grid-import state so no grid UI bleeds across project types.
+    // Clear all viewer state before switching projects.
     setRowTrackerData(null);
+    setCrochetData(null);
     setShowCalibrator(false);
+    setShowCrochetCalibrator(false);
     setIsGridMode(false);
+    setIsCrochetMode(false);
     setHasConverted(false);
     setSteps([]);
 
     if (project.type === "tracker" && project.trackerData) {
       const { imageSrc, rect, rows, stitches, currentRow } = project.trackerData;
-      // Write to localStorage first so RowTracker's lazy initialiser picks it up on remount
       try {
         localStorage.setItem("knitstep_tracker", JSON.stringify({ imageSrc, rect, rows, stitches, currentRow }));
       } catch {}
+      try { localStorage.removeItem("knitstep_crochet"); } catch {}
       setRowTrackerData({ imageSrc, rect, rows, stitches });
       setIsInputExpanded(false);
       setShowProjectsModal(false);
       return;
     }
 
-    // Non-tracker project: clear the tracker localStorage key so it doesn't
-    // reappear on the next page refresh (the separate tracker-loading useEffect
-    // runs on every mount and re-populates rowTrackerData from this key).
+    if (project.type === "crochet" && project.crochetData) {
+      try {
+        localStorage.setItem("knitstep_crochet", JSON.stringify(project.crochetData));
+      } catch {}
+      try { localStorage.removeItem("knitstep_tracker"); } catch {}
+      setCrochetData(project.crochetData);
+      setIsInputExpanded(false);
+      setShowProjectsModal(false);
+      return;
+    }
+
+    // Checklist / grid: clear both tracker keys
     try { localStorage.removeItem("knitstep_tracker"); } catch {}
+    try { localStorage.removeItem("knitstep_crochet"); } catch {}
 
     setSteps(project.steps);
     setHasConverted(true);
@@ -653,9 +717,13 @@ export default function Home() {
         setErrorMsg={ai.setError}
         isGridMode={isGridMode}
         setIsGridMode={setIsGridMode}
+        isCrochetMode={isCrochetMode}
+        setIsCrochetMode={setIsCrochetMode}
         promptVersion={promptVersion}
         setPromptVersion={setPromptVersion}
-        onCalibrate={isGridMode && uploadedImages.length > 0 ? () => setShowCalibrator(true) : undefined}
+        onCalibrate={
+          isGridMode && uploadedImages.length > 0 ? () => setShowCalibrator(true) : undefined
+        }
       />
 
       {/* ── Calibrator ── */}
@@ -674,6 +742,57 @@ export default function Home() {
               lang={lang}
               onComplete={handleCalibrationComplete}
               onCancel={() => setShowCalibrator(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Crochet Calibrator ── */}
+      <AnimatePresence>
+        {showCrochetCalibrator && uploadedImages[0] && (
+          <motion.div
+            key="crochet-calibrator"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="w-full max-w-4xl"
+          >
+            <CrochetCalibrator
+              imageSrc={uploadedImages[0].previewUrl}
+              imageBase64={uploadedImages[0].base64}
+              imageMimeType={uploadedImages[0].mimeType}
+              lang={lang}
+              onComplete={handleCrochetCalibrationComplete}
+              onCancel={() => setShowCrochetCalibrator(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Crochet Tracker ── */}
+      <AnimatePresence>
+        {crochetData && !showCrochetCalibrator && (
+          <motion.div
+            key={`crochet-tracker-${pm.currentProjectId ?? "local"}`}
+            ref={crochetTrackerRef}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="w-full max-w-4xl"
+          >
+            <CrochetTracker
+              data={crochetData}
+              lang={lang}
+              onReset={() => {
+                setCrochetData(null);
+                localStorage.removeItem("knitstep_crochet");
+                setShowCrochetCalibrator(true);
+              }}
+              onRowChange={(row) => {
+                if (pm.currentProjectId) pm.updateCrochetProgress(pm.currentProjectId, row);
+              }}
             />
           </motion.div>
         )}
@@ -732,12 +851,13 @@ export default function Home() {
           ? pm.projects.find((p) => p.id === pm.currentProjectId)
           : null;
         if (activeProject?.type === "tracker") return null;
+        if (activeProject?.type === "crochet") return null;
         const isGridProject = hasConverted && activeProject?.type === "grid" && !!activeProject.gridData;
         if (isGridProject) return null;
-        // Only let the grid-mode toggle hide the checklist when no checklist
+        // Only let the grid/crochet-mode toggle hide the checklist when no checklist
         // project is already loaded — browsing upload options shouldn't affect it.
         const hasActiveChecklist = hasConverted && activeProject?.type !== "grid";
-        if (isGridMode && !hasActiveChecklist) return null;
+        if ((isGridMode || isCrochetMode) && !hasActiveChecklist) return null;
         return <ChecklistView
         lang={lang}
         t={t}
