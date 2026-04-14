@@ -148,16 +148,17 @@ export default function ProjectGallery({
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", paddingTop: "6px" }}>
               {projects.map((project, idx) => {
-                const isActive  = project.id === currentProjectId;
-                const isTracker = project.type === "tracker";
-                // Tracker projects: progress by row; instruction/grid projects: progress by checked steps
-                const checkable = project.steps.filter((s) => !s.isHeader);
-                const done      = isTracker
-                  ? (project.trackerData?.currentRow ?? 1) - 1
-                  : checkable.filter((s) => s.checked).length;
-                const total     = isTracker
-                  ? (project.trackerData?.rows ?? 1)
-                  : checkable.length;
+                const isActive   = project.id === currentProjectId;
+                const isTracker  = project.type === "tracker";
+                const isCrochet  = project.type === "crochet";
+                // Tracker: row progress; crochet: row/round progress; others: checklist steps
+                const checkable  = project.steps.filter((s) => !s.isHeader);
+                const done       = isCrochet  ? (project.crochetData?.currentRow ?? 1) - 1
+                                 : isTracker  ? (project.trackerData?.currentRow  ?? 1) - 1
+                                 : checkable.filter((s) => s.checked).length;
+                const total      = isCrochet  ? (project.crochetData?.totalRows   ?? 0)
+                                 : isTracker  ? (project.trackerData?.rows         ?? 1)
+                                 : checkable.length;
                 const pct       = total > 0 ? Math.round((done / total) * 100) : 0;
                 const date      = new Date(project.lastUpdated).toLocaleDateString(
                   lang === "zh" ? "zh-CN" : "en-US",
@@ -259,7 +260,11 @@ export default function ProjectGallery({
                       {total > 0 && (
                         <div style={{ marginTop: "4px" }}>
                           <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
-                            {isTracker
+                            {isCrochet
+                              ? project.crochetData?.mode === "circular"
+                                ? (lang === "zh" ? `第 ${done + 1} 圈 / 共 ${total} 圈` : `Round ${done + 1} / ${total}`)
+                                : (lang === "zh" ? `第 ${done + 1} 行 / 共 ${total} 行` : `Row ${done + 1} / ${total}`)
+                              : isTracker
                               ? (lang === "zh" ? `第 ${done + 1} 行 / 共 ${total} 行` : `Row ${done + 1} / ${total}`)
                               : `${lang === "zh" ? "进度" : "Progress"} ${done}/${total}`}
                           </p>
@@ -285,6 +290,16 @@ export default function ProjectGallery({
                             borderRadius: "99px", padding: "1px 7px",
                           }}>
                             {lang === "zh" ? "当前" : "Active"}
+                          </span>
+                        ) : isCrochet ? (
+                          <span style={{
+                            fontSize: "10px", fontWeight: 700, letterSpacing: "0.03em",
+                            color: "var(--morandi-green)", background: "rgba(143,175,150,0.14)",
+                            borderRadius: "99px", padding: "1px 7px",
+                          }}>
+                            {project.crochetData?.mode === "circular"
+                              ? (lang === "zh" ? "圈织" : "Circular")
+                              : (lang === "zh" ? "片织" : "Flat")}
                           </span>
                         ) : isTracker ? (
                           <span style={{
