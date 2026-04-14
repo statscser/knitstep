@@ -160,15 +160,27 @@ export default function CrochetTracker({
 
   // ── Circular SVG overlay ──────────────────────────────────────────────────
 
-  /** Convert normalized landmark points to a SVG path string (pixel coords). */
+  /** Convert normalized landmark points to a smooth closed SVG path (pixel coords).
+   *  Uses quadratic bezier curves through midpoints so the shape is rounded
+   *  rather than a hard polygon — each original point acts as a control point
+   *  and the midpoint between adjacent points is the curve anchor. */
   function landmarkToPath(lm: import("../../lib/types").CrochetLandmark): string {
     const { w, h } = containerPx;
-    if (!lm.points || lm.points.length < 3) return "";
-    return (
-      lm.points
-        .map((p, i) => `${i === 0 ? "M" : "L"}${(p.x * w).toFixed(1)},${(p.y * h).toFixed(1)}`)
-        .join(" ") + " Z"
-    );
+    const pts = lm.points;
+    if (!pts || pts.length < 3) return "";
+    const n = pts.length;
+    const px = (i: number) => (pts[i].x * w).toFixed(1);
+    const py = (i: number) => (pts[i].y * h).toFixed(1);
+    const mx = (i: number, j: number) => (((pts[i].x + pts[j].x) / 2) * w).toFixed(1);
+    const my = (i: number, j: number) => (((pts[i].y + pts[j].y) / 2) * h).toFixed(1);
+    // Start at midpoint between last and first point
+    let d = `M${mx(n - 1, 0)},${my(n - 1, 0)}`;
+    for (let i = 0; i < n; i++) {
+      const next = (i + 1) % n;
+      // Quadratic bezier: control = pts[i], anchor = midpoint(pts[i], pts[next])
+      d += ` Q${px(i)},${py(i)} ${mx(i, next)},${my(i, next)}`;
+    }
+    return d + " Z";
   }
 
   function renderCircularOverlay() {

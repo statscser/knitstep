@@ -46,13 +46,14 @@ The user has marked the center at (${cx.toFixed(2)}, ${cy.toFixed(2)}).
 3. **Printed round numbers:** Numbers (1, 2, 3 …) printed near the start of a round are mandatory anchors — if you see "5", your output must have at least 5 rounds.
 
 ### TRACING RULES:
-4. **Shape-adaptive point count:** Use the minimum points needed to accurately describe the shape — typically 8-16 points. Do NOT over-sample; smooth shapes (circles, rounded squares) need fewer points than jagged or petal shapes.
-   - Near-circular round → 8-12 evenly spaced points
-   - Square/granny-square round → exactly 8 points (4 corners + 4 midpoints)
-   - Petal/flower round → 12-16 points capturing peak and valley of each petal
-5. **No merging:** Each concentric ring of stitches is one unique Round.
-6. **Clockwise order:** Points must trace the outer perimeter clockwise.
-7. **Full coverage:** Continue until the absolute outer edge of the chart.
+4. **Base shape first, then bumps:** Every round is essentially a circle or a square. Start from that base shape, then add gentle inflection points ONLY where the stitches visibly bulge outward or indent (e.g., petal peaks, corner protusions, flower valleys). Do NOT place extra points on smooth straight or curved segments.
+   - Near-circular round → 8 evenly spaced points around the circumference
+   - Square/granny-square round → 8 points (4 corners + 4 edge midpoints)
+   - Petal/flower round → one peak + one valley per petal repeat, typically 12-16 points total
+5. **Inflection points only:** Points are bezier CONTROL POINTS for a smooth curve — they do NOT need to sit exactly on the stitch outline. Place them at the natural high/low points of the shape so the resulting smooth curve generously covers the whole round.
+6. **No merging:** Each concentric ring of stitches is one unique Round.
+7. **Clockwise order:** Points must trace the outer perimeter clockwise.
+8. **Full coverage:** Continue until the absolute outer edge of the chart.
 
 ### OUTPUT REQUIREMENTS:
 - Return ONLY valid JSON.
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
       const jsonEnd = raw.lastIndexOf("}");
       const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
-      const landmarks: CrochetLandmark[] = Array.isArray(parsed.landmarks)
+      let landmarks: CrochetLandmark[] = Array.isArray(parsed.landmarks)
         ? parsed.landmarks.filter(
             (l: unknown): l is CrochetLandmark =>
               l !== null &&
@@ -122,6 +123,33 @@ export async function POST(req: NextRequest) {
               typeof (l as CrochetLandmark).rowNumber === "number",
           )
         : [];
+
+      // ── Flat mode: normalise landmark ordering ────────────────────────────
+      // The AI sometimes returns swapped yMin/yMax or assigns row numbers that
+      // don't match the visual top-to-bottom order, causing the highlight band
+      // to jump. Fix: sort by y-midpoint descending (row 1 = bottom = highest y)
+      // then re-assign sequential row numbers so they always go bottom→top.
+      if (mode === "flat" && landmarks.length > 0) {
+        // 1. Repair any swapped yMin/yMax
+        for (const lm of landmarks) {
+          if (
+            typeof lm.yMin === "number" &&
+            typeof lm.yMax === "number" &&
+            lm.yMin > lm.yMax
+          ) {
+            [lm.yMin, lm.yMax] = [lm.yMax, lm.yMin];
+          }
+        }
+        // 2. Sort by y midpoint descending (bottom of image first)
+        landmarks.sort((a, b) => {
+          const mA = ((a.yMin ?? 0) + (a.yMax ?? 0)) / 2;
+          const mB = ((b.yMin ?? 0) + (b.yMax ?? 0)) / 2;
+          return mB - mA;
+        });
+        // 3. Re-number 1…N so row 1 is always the bottom-most band
+        landmarks.forEach((lm, i) => { lm.rowNumber = i + 1; });
+      }
+
       const totalRows: number =
         parsed.totalRows ?? parsed.totalRounds ?? landmarks.length;
 
