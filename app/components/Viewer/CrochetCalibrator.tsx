@@ -50,8 +50,14 @@ export default function CrochetCalibrator({
   const abortRef  = useRef<AbortController | null>(null);
 
   const [mode, setMode]               = useState<CrochetMode | null>(initialMode ?? null);
-  const [startPoint, setStartPoint]   = useState<{ x: number; y: number } | null>(null);
-  const [startCorner, setStartCorner] = useState<CrochetStartCorner | null>(null);
+  const [startPoint, setStartPoint]   = useState<{ x: number; y: number } | null>(
+    initialMode === "circular" ? { x: 0.5, y: 0.5 }
+    : initialMode === "flat"   ? { x: 0.96, y: 0.94 }
+    : null,
+  );
+  const [startCorner, setStartCorner] = useState<CrochetStartCorner | null>(
+    initialMode === "flat" ? "bottom-right" : null,
+  );
   const [isLoading, setIsLoading]     = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
@@ -81,9 +87,14 @@ export default function CrochetCalibrator({
 
   function handleModeChange(next: CrochetMode) {
     setMode(next);
-    setStartPoint(null);
-    setStartCorner(null);
     setError(null);
+    if (next === "circular") {
+      setStartPoint({ x: 0.5, y: 0.5 });
+      setStartCorner(null);
+    } else {
+      setStartPoint({ x: 0.96, y: 0.94 });
+      setStartCorner("bottom-right");
+    }
   }
 
   // ── Start AI analysis ─────────────────────────────────────────────────────

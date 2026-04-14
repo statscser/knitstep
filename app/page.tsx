@@ -289,6 +289,7 @@ export default function Home() {
           setHasConverted(false);
           setRowTrackerData(null);
           setCrochetData(null);
+          setLastCrochetMode(null);
           try { localStorage.removeItem("knitstep_crochet"); } catch {}
           try { localStorage.removeItem("knitstep_tracker"); } catch {}
           setShowCrochetCalibrator(true);
@@ -306,6 +307,7 @@ export default function Home() {
             setHasConverted(false);
             setRowTrackerData(null);
             setCrochetData(null);
+            setLastCrochetMode(null);
             try { localStorage.removeItem("knitstep_crochet"); } catch {}
             try { localStorage.removeItem("knitstep_tracker"); } catch {}
             setShowCrochetCalibrator(true);
