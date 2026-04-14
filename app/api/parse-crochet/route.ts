@@ -40,9 +40,11 @@ function buildCircularPrompt(cx: number, cy: number): string {
 
 The user has marked the center at (${cx.toFixed(2)}, ${cy.toFixed(2)}).
 
-### BOUNDARY SIGNALS — use ALL of these to locate each round's outer edge:
-1. **Stitch tops (PRIMARY):** The outer boundary of a round is the straight line formed by the TOPS of double crochet (dc/长针) or half double crochet (hdc/中长针) symbols, combined with any chain (ch/锁针) spaces at that level. This is the most reliable visual signal.
-2. **Color changes:** If different rounds use different yarn colors, each color region is a distinct round. Treat color boundaries as hard evidence for a new round edge.
+### HOW TO LOCATE EACH ROUND'S OUTER EDGE:
+1. **Stitch tops (PRIMARY — most reliable signal):**
+   Each dc (double crochet / 长针) or hdc (half double crochet / 中长针) symbol has a small horizontal bar or "T" at the very top. The outer boundary of a round is the line connecting those top bars, combined with any chain (ch/锁针) stitches at the same level. This top-bar line is where you must place your points — NOT the midpoint or base of the stitch.
+   The outermost round's points should reach the absolute outer edge of the chart, including the topmost horizontal bar of the outermost stitch row.
+2. **Color changes:** If different rounds use different yarn colors, each color region is a distinct round. The boundary sits at the top of the last row of that color.
 3. **Printed round numbers:** Numbers (1, 2, 3 …) printed near the start of a round are mandatory anchors — if you see "5", your output must have at least 5 rounds.
 
 ### TRACING RULES:

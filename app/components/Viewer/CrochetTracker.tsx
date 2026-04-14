@@ -160,25 +160,33 @@ export default function CrochetTracker({
 
   // ── Circular SVG overlay ──────────────────────────────────────────────────
 
-  /** Convert normalized landmark points to a smooth closed SVG path (pixel coords).
-   *  Uses quadratic bezier curves through midpoints so the shape is rounded
-   *  rather than a hard polygon — each original point acts as a control point
-   *  and the midpoint between adjacent points is the curve anchor. */
-  function landmarkToPath(lm: import("../../lib/types").CrochetLandmark): string {
+  /** Smooth closed SVG path from landmark points.
+   *  @param expandScale  Scale each point outward from (cx,cy) by this factor
+   *                      (1.0 = no change, 1.08 = 8% outward expansion).
+   *  Uses quadratic bezier curves through midpoints for a rounded result. */
+  function landmarkToPath(
+    lm: import("../../lib/types").CrochetLandmark,
+    cx = 0,
+    cy = 0,
+    expandScale = 1.0,
+  ): string {
     const { w, h } = containerPx;
     const pts = lm.points;
     if (!pts || pts.length < 3) return "";
     const n = pts.length;
-    const px = (i: number) => (pts[i].x * w).toFixed(1);
-    const py = (i: number) => (pts[i].y * h).toFixed(1);
-    const mx = (i: number, j: number) => (((pts[i].x + pts[j].x) / 2) * w).toFixed(1);
-    const my = (i: number, j: number) => (((pts[i].y + pts[j].y) / 2) * h).toFixed(1);
-    // Start at midpoint between last and first point
-    let d = `M${mx(n - 1, 0)},${my(n - 1, 0)}`;
+
+    // Apply outward expansion in pixel space
+    const epx = (i: number) => (cx + (pts[i].x * w - cx) * expandScale).toFixed(1);
+    const epy = (i: number) => (cy + (pts[i].y * h - cy) * expandScale).toFixed(1);
+    const emx = (i: number, j: number) =>
+      (cx + (((pts[i].x + pts[j].x) / 2) * w - cx) * expandScale).toFixed(1);
+    const emy = (i: number, j: number) =>
+      (cy + (((pts[i].y + pts[j].y) / 2) * h - cy) * expandScale).toFixed(1);
+
+    let d = `M${emx(n - 1, 0)},${emy(n - 1, 0)}`;
     for (let i = 0; i < n; i++) {
       const next = (i + 1) % n;
-      // Quadratic bezier: control = pts[i], anchor = midpoint(pts[i], pts[next])
-      d += ` Q${px(i)},${py(i)} ${mx(i, next)},${my(i, next)}`;
+      d += ` Q${epx(i)},${epy(i)} ${emx(i, next)},${emy(i, next)}`;
     }
     return d + " Z";
   }
@@ -209,8 +217,8 @@ export default function CrochetTracker({
       (currentRow === 1 || (prevLm?.points?.length ?? 0) >= 3);
 
     const innerOfCurrent = currentRow > 1 ? outerR(currentRow - 1) : 0;
-    const outerOfCurrent = outerR(currentRow);
-    // Widen the circular stroke by 1.4× to better cover the ring
+    // Expand outer radius 8% outward to cover stitch tops even when AI undershoots
+    const outerOfCurrent = outerR(currentRow) * 1.08;
     const bandW = Math.max((outerOfCurrent - innerOfCurrent) * 1.4, 2);
 
     return (
@@ -222,15 +230,16 @@ export default function CrochetTracker({
           <>
             {/* Dim inner area using the previous round's boundary polygon */}
             {prevLm && prevLm.points && prevLm.points.length >= 3 && (
-              <path d={landmarkToPath(prevLm)} fill="rgba(0,0,0,0.38)" />
+              <path d={landmarkToPath(prevLm, cx, cy, 1.0)} fill="rgba(0,0,0,0.38)" />
             )}
-            {/* Highlight ring: compound evenodd path between outer and inner boundary */}
+            {/* Highlight ring: outer path expanded ~8% outward so the band
+                always covers the stitch tops even when the AI undershoots */}
             {currentLm && currentLm.points && currentLm.points.length >= 3 && (
               <path
                 d={
-                  landmarkToPath(currentLm) +
+                  landmarkToPath(currentLm, cx, cy, 1.08) +
                   (prevLm && prevLm.points && prevLm.points.length >= 3
-                    ? " " + landmarkToPath(prevLm)
+                    ? " " + landmarkToPath(prevLm, cx, cy, 1.0)
                     : "")
                 }
                 fill={`rgba(143,175,150,0.42)`}
@@ -240,7 +249,7 @@ export default function CrochetTracker({
             {/* Subtle outlines for future rounds */}
             {sorted.map((lm) => {
               if (lm.rowNumber <= currentRow) return null;
-              const path = landmarkToPath(lm);
+              const path = landmarkToPath(lm, cx, cy, 1.0);
               if (!path) return null;
               return (
                 <path
