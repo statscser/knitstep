@@ -293,13 +293,20 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh"
       </div>
 
       {/* ── Re-calibrate ── */}
-      <div className="flex justify-start">
+      <div className="flex justify-center">
         <button
           onClick={onReset}
           style={{
-            padding: "6px 14px", borderRadius: 12, border: `1.5px solid ${C_BORDER}`,
-            background: "var(--bg)", color: C_MUTED, fontSize: 12, fontWeight: 600,
-            fontFamily: "var(--font-body)", cursor: "pointer",
+            padding:    "8px 22px",
+            borderRadius: 12,
+            border:     `1.5px solid ${C_GREEN}`,
+            background: "rgba(143,175,150,0.08)",
+            color:      C_GREEN,
+            fontSize:   12,
+            fontWeight: 600,
+            fontFamily: "var(--font-body)",
+            cursor:     "pointer",
+            transition: "all 0.18s",
           }}
         >
           {zh ? "重新标定" : "Re-calibrate"}

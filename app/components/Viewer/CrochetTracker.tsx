@@ -301,6 +301,14 @@ export default function CrochetTracker({
   }
 
   // ─── JSX ─────────────────────────────────────────────────────────────────
+
+  // For flat mode: position nav buttons at the current row band midpoint
+  const flatBand = !isCircular ? getRowBand(currentRow, data.totalRows, data.landmarks) : null;
+  // Clamp so buttons stay inside the image (centre of 44 px button = ~4 %)
+  const navTopPct = flatBand
+    ? Math.max(5, Math.min(95, flatBand.top + flatBand.height / 2))
+    : 50;
+
   return (
     <div className="w-full flex flex-col gap-4" style={{ fontFamily: "var(--font-body)" }}>
 
@@ -327,61 +335,68 @@ export default function CrochetTracker({
         <span style={{ fontWeight: 700 }}>{pct}%</span>
       </div>
 
-      {/* ── Image with overlay ── */}
+      {/* ── Outer container: positioning anchor, no clip ── */}
       <div
         ref={containerRef}
         onClick={handleImageClick}
         style={{
+          position:   "relative",
+          cursor:     isCircular ? "default" : "pointer",
+          userSelect: "none",
+        }}
+      >
+        {/* ── Inner container: clips image + overlays to rounded corners ── */}
+        <div style={{
           position:     "relative",
           borderRadius: "1rem",
           overflow:     "hidden",
-          cursor:       isCircular ? "default" : "pointer",
           border:       `1.5px solid ${C_BORDER}`,
-          userSelect:   "none",
-        }}
-      >
-        <img
-          ref={imgRef}
-          src={data.imageSrc}
-          alt="crochet chart"
-          draggable={false}
-          onLoad={measureContainer}
-          style={{ width: "100%", display: "block" }}
-        />
+        }}>
+          <img
+            ref={imgRef}
+            src={data.imageSrc}
+            alt="crochet chart"
+            draggable={false}
+            onLoad={measureContainer}
+            style={{ width: "100%", display: "block" }}
+          />
 
-        {isCircular ? renderCircularOverlay() : renderFlatOverlay()}
+          {isCircular ? renderCircularOverlay() : renderFlatOverlay()}
 
-        {/* ── Floating row badge (top-right) ── */}
-        <div
-          data-nav-btn
-          style={{
-            position:     "absolute",
-            top:          "0.6rem",
-            right:        "0.6rem",
-            background:   "rgba(255,255,255,0.92)",
-            border:       `1.5px solid ${C_BORDER}`,
-            borderRadius: "999px",
-            padding:      "2px 10px",
-            fontSize:     13,
-            fontWeight:   700,
-            color:        C_TEXT,
-            lineHeight:   1.6,
-          }}
-        >
-          {currentRow} / {data.totalRows}
+          {/* ── Floating row badge (top-right, stays inside clip) ── */}
+          <div
+            data-nav-btn
+            style={{
+              position:     "absolute",
+              top:          "0.6rem",
+              right:        "0.6rem",
+              background:   "rgba(255,255,255,0.92)",
+              border:       `1.5px solid ${C_BORDER}`,
+              borderRadius: "999px",
+              padding:      "2px 10px",
+              fontSize:     13,
+              fontWeight:   700,
+              color:        C_TEXT,
+              lineHeight:   1.6,
+            }}
+          >
+            {currentRow} / {data.totalRows}
+          </div>
         </div>
 
-        {/* ── Floating ▲ / ▼ buttons (right-centre) ── */}
+        {/* ── Floating ▲ / ▼ buttons — outside clip so they can follow row band ── */}
         <div
           data-nav-btn
           style={{
-            position:       "absolute",
-            right:          "0.6rem",
-            top:            "50%",
-            transform:      "translateY(-50%)",
-            display:        "flex",
-            flexDirection:  "column",
-            gap:            "0.45rem",
+            position:      "absolute",
+            right:         "0.6rem",
+            top:           `${navTopPct}%`,
+            transform:     "translateY(-50%)",
+            transition:    "top 0.15s ease",
+            display:       "flex",
+            flexDirection: "column",
+            gap:           "0.45rem",
+            zIndex:        10,
           }}
         >
           {([
@@ -394,21 +409,21 @@ export default function CrochetTracker({
               onClick={(e) => { e.stopPropagation(); goTo(currentRow + delta); }}
               disabled={disabled}
               style={{
-                width:         44,
-                height:        44,
-                borderRadius:  "50%",
-                background:    "rgba(255,255,255,0.92)",
-                border:        `1.5px solid ${C_BORDER}`,
-                cursor:        disabled ? "not-allowed" : "pointer",
-                fontSize:      18,
-                fontWeight:    700,
-                color:         disabled ? C_BORDER : C_TEXT,
-                boxShadow:     "0 2px 8px rgba(0,0,0,0.12)",
-                display:       "flex",
-                alignItems:    "center",
-                justifyContent:"center",
-                transition:    "opacity 0.2s",
-                opacity:       disabled ? 0.4 : 1,
+                width:          44,
+                height:         44,
+                borderRadius:   "50%",
+                background:     "rgba(255,255,255,0.92)",
+                border:         `1.5px solid ${C_BORDER}`,
+                cursor:         disabled ? "not-allowed" : "pointer",
+                fontSize:       18,
+                fontWeight:     700,
+                color:          disabled ? C_BORDER : C_TEXT,
+                boxShadow:      "0 2px 8px rgba(0,0,0,0.12)",
+                display:        "flex",
+                alignItems:     "center",
+                justifyContent: "center",
+                transition:     "opacity 0.2s",
+                opacity:        disabled ? 0.4 : 1,
               }}
             >
               {symbol}
@@ -417,14 +432,26 @@ export default function CrochetTracker({
         </div>
       </div>
 
-      {/* ── Recalibrate link ── */}
-      <button
-        onClick={onReset}
-        className="text-xs font-medium text-center underline transition-opacity hover:opacity-70"
-        style={{ background: "none", border: "none", cursor: "pointer", color: C_MUTED }}
-      >
-        {zh ? "重新标定" : "Recalibrate"}
-      </button>
+      {/* ── Recalibrate button ── */}
+      <div className="flex justify-center">
+        <button
+          onClick={onReset}
+          style={{
+            padding:      "8px 22px",
+            borderRadius: 12,
+            border:       `1.5px solid ${C_GREEN}`,
+            background:   "rgba(143,175,150,0.08)",
+            color:        C_GREEN,
+            fontSize:     12,
+            fontWeight:   600,
+            cursor:       "pointer",
+            transition:   "all 0.18s",
+            fontFamily:   "var(--font-body)",
+          }}
+        >
+          {zh ? "重新标定" : "Recalibrate"}
+        </button>
+      </div>
     </div>
   );
 }

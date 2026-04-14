@@ -62,6 +62,7 @@ export default function Home() {
   const [isCrochetMode, setIsCrochetMode]         = useState(false);
   const [showCrochetCalibrator, setShowCrochetCalibrator] = useState(false);
   const [crochetData, setCrochetData]             = useState<CrochetData | null>(null);
+  const [lastCrochetMode, setLastCrochetMode]     = useState<import("./lib/types").CrochetMode | null>(null);
   const touchStartX    = useRef<number | null>(null);
   const latestFilesRef = useRef<File[]>([]);
   const checklistTopRef  = useRef<HTMLDivElement>(null);
@@ -791,6 +792,7 @@ export default function Home() {
               imageBase64={uploadedImages[0].base64}
               imageMimeType={uploadedImages[0].mimeType}
               lang={lang}
+              initialMode={lastCrochetMode ?? undefined}
               onComplete={handleCrochetCalibrationComplete}
               onCancel={() => setShowCrochetCalibrator(false)}
             />
@@ -814,6 +816,7 @@ export default function Home() {
               data={crochetData}
               lang={lang}
               onReset={() => {
+                if (crochetData?.mode) setLastCrochetMode(crochetData.mode);
                 setCrochetData(null);
                 localStorage.removeItem("knitstep_crochet");
                 setShowCrochetCalibrator(true);

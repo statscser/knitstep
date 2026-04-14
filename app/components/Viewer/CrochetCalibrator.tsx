@@ -18,6 +18,7 @@ interface Props {
   imageBase64: string;
   imageMimeType: string;
   lang?: "zh" | "en";
+  initialMode?: CrochetMode;
   onComplete: (result: CrochetCalibrationResult) => void;
   onCancel?: () => void;
 }
@@ -34,12 +35,13 @@ const RADIUS   = "1.5rem";
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function CrochetCalibrator({
-  imageSrc, imageBase64, imageMimeType, lang = "zh", onComplete, onCancel,
+  imageSrc, imageBase64, imageMimeType, lang = "zh", initialMode, onComplete, onCancel,
 }: Props) {
   const zh = lang === "zh";
-  const imgRef = useRef<HTMLDivElement>(null);
+  const imgRef    = useRef<HTMLDivElement>(null);
+  const abortRef  = useRef<AbortController | null>(null);
 
-  const [mode, setMode]               = useState<CrochetMode | null>(null);
+  const [mode, setMode]               = useState<CrochetMode | null>(initialMode ?? null);
   const [startPoint, setStartPoint]   = useState<{ x: number; y: number } | null>(null);
   const [startCorner, setStartCorner] = useState<CrochetStartCorner | null>(null);
   const [isLoading, setIsLoading]     = useState(false);
@@ -79,6 +81,8 @@ export default function CrochetCalibrator({
   // ── Start AI analysis ─────────────────────────────────────────────────────
   async function handleAnalyze() {
     if (!mode || !startPoint) return;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setIsLoading(true);
     setError(null);
 
@@ -86,6 +90,7 @@ export default function CrochetCalibrator({
       const res = await fetch("/api/parse-crochet", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
+        signal:  ctrl.signal,
         body: JSON.stringify({
           imageBase64,
           mimeType:    imageMimeType,
@@ -102,11 +107,18 @@ export default function CrochetCalibrator({
         : landmarks.length;
 
       onComplete({ mode, startPoint, startCorner: startCorner ?? undefined, landmarks, totalRows });
-    } catch {
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") return; // cancelled — stay on calibrator
       setError(zh ? "识别失败，请重试" : "Recognition failed. Please try again.");
     } finally {
       setIsLoading(false);
+      abortRef.current = null;
     }
+  }
+
+  function handleCancelAnalysis() {
+    abortRef.current?.abort();
+    setIsLoading(false);
   }
 
   const canAnalyze = mode !== null && startPoint !== null && !isLoading;
@@ -267,28 +279,63 @@ export default function CrochetCalibrator({
         <p className="text-xs text-center" style={{ color: "#c0695a" }}>⚠️ {error}</p>
       )}
 
-      {/* Analyze button */}
-      <button
-        onClick={handleAnalyze}
-        disabled={!canAnalyze}
-        style={{
-          background:   canAnalyze ? C_PINK : "var(--bg)",
-          border:       `1.5px solid ${canAnalyze ? C_PINK : C_BORDER}`,
-          borderRadius: RADIUS,
-          color:        canAnalyze ? "#fff" : C_MUTED,
-          padding:      "0.9rem",
-          fontSize:     "0.9375rem",
-          fontWeight:   700,
-          cursor:       canAnalyze ? "pointer" : "not-allowed",
-          opacity:      isLoading ? 0.65 : 1,
-          transition:   "all 0.2s",
-          letterSpacing: "0.03em",
-        }}
-      >
-        {isLoading
-          ? (zh ? "✨ AI 识别中，请稍候…" : "✨ AI analyzing, please wait…")
-          : (zh ? "开始 AI 识别 ✨"        : "Start AI Analysis ✨")}
-      </button>
+      {/* Analyze / Cancel button */}
+      {isLoading ? (
+        <div className="flex flex-col items-center gap-2">
+          <button
+            disabled
+            style={{
+              background:    C_PINK,
+              border:        `1.5px solid ${C_PINK}`,
+              borderRadius:  RADIUS,
+              color:         "#fff",
+              padding:       "0.9rem",
+              fontSize:      "0.9375rem",
+              fontWeight:    700,
+              cursor:        "not-allowed",
+              opacity:       0.65,
+              width:         "100%",
+              letterSpacing: "0.03em",
+            }}
+          >
+            {zh ? "✨ AI 识别中，请稍候…" : "✨ AI analyzing, please wait…"}
+          </button>
+          <button
+            onClick={handleCancelAnalysis}
+            style={{
+              background:   "none",
+              border:       "none",
+              color:        C_MUTED,
+              fontSize:     12,
+              fontWeight:   600,
+              cursor:       "pointer",
+              padding:      "2px 8px",
+              textDecoration: "underline",
+            }}
+          >
+            {zh ? "取消" : "Cancel"}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleAnalyze}
+          disabled={!canAnalyze}
+          style={{
+            background:    canAnalyze ? C_PINK : "var(--bg)",
+            border:        `1.5px solid ${canAnalyze ? C_PINK : C_BORDER}`,
+            borderRadius:  RADIUS,
+            color:         canAnalyze ? "#fff" : C_MUTED,
+            padding:       "0.9rem",
+            fontSize:      "0.9375rem",
+            fontWeight:    700,
+            cursor:        canAnalyze ? "pointer" : "not-allowed",
+            transition:    "all 0.2s",
+            letterSpacing: "0.03em",
+          }}
+        >
+          {zh ? "开始 AI 识别 ✨" : "Start AI Analysis ✨"}
+        </button>
+      )}
     </div>
   );
 }
