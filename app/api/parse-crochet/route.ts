@@ -17,24 +17,40 @@ const MODELS_TO_TRY = [
 
 function buildFlatPrompt(startCorner: CrochetStartCorner): string {
   const side = startCorner === "bottom-left" ? "bottom-left" : "bottom-right";
-  return `You are a crochet/knitting chart image analyzer.
+  const direction = startCorner === "bottom-left" ? "right" : "left";
+  return `你是一位专业的钩针图解分析师，专门处理片织图案 (Professional Crochet Chart Analyst for FLAT patterns)。
 
-This is a FLAT chart (片织 / back-and-forth). Row 1 begins at the ${side} corner and rows are read upward.
+这是一个片织图 (FLAT / 片织 / back-and-forth)。第1行从 ${side} 角开始向上延伸，阅读方向向 ${direction}，之后每行交替方向。
 
-Task: Identify every row in the chart and its vertical extent in the image.
+### 第一步：思维链分析 (Chain of Thought)
+在生成 JSON 之前，请按以下步骤进行内部推理：
+1. **识别行数 (Count Rows)**：从底部向上，利用打印的行号、颜色带或明显的针步层级确定总行数。
+2. **逐行分析 (Row-by-Row Analysis)**：
+   - 从第1行（最底部）开始，每行交替阅读方向（第1行向${direction}，第2行向反方向，以此类推）。
+   - 识别每行的重复花样（例如："[2长针, 1锁针] 重复6次" 或 "[短针, 长针, 短针] 交替"）。
+   - 记录每行的实际针数。
+3. **定位针步峰值 (Locate Stitch Peaks)**：
+   - 对每一行，找到该行最高针步符号（如长针/dc、贝壳针/shell中心顶部、爆米花针/puff中心顶部，横向锁针的中心最高点）的绝对最高像素点，这就是该行的 yMin。
+   - yMax 是该行针步根部（链针基础线或前一行顶部）的位置。
+   - yMin 的线应"掠过"该行最高凸起的顶端，而不是切穿针步符号。
+4. **全覆盖 (Full Coverage)**：确保每行的 [yMin, yMax] 范围完整包含该行所有针步符号，行与行之间不留空白。
 
-Rules:
-- yMin / yMax are normalized coordinates: 0.0 = very top of image, 1.0 = very bottom
-- Row 1 is the LOWEST row (nearest the bottom edge); highest row number is at the top
-- If row numbers are printed on the sides of the chart, use them
-- If no row numbers are visible, use ALL of the following signals to estimate row boundaries:
-  1. COLOR CHANGES: different yarn colors on different rows are a strong signal — each distinct color band is its own row or group of rows
-  2. STITCH TOPS: the straight horizontal line formed by the tops of double crochet (dc/长针) or half double crochet (hdc/中长针) symbols marks the top boundary of a row
-  3. CHAIN LINES: a horizontal chain (ch/锁针) line typically separates rows
-- Cover the full vertical range of the chart; do not leave gaps between rows
+### 第二步：坐标规则 (Coordinate Rules)
+- 归一化坐标：0.0 = 图片最顶部，1.0 = 图片最底部
+- 第1行是图片中最低的行（y值最大）；行号越大，位置越高（y值越小）
+- 如果图解两侧印有行号，必须以此为锚点
+- 优先保证针步符号完整包含在 [yMin, yMax] 内，其次才是行间无缝衔接
 
-Return ONLY valid JSON — no markdown, no commentary:
-{"totalRows":<integer>,"landmarks":[{"rowNumber":1,"yMin":0.85,"yMax":0.95},{"rowNumber":2,"yMin":0.74,"yMax":0.84},...]}`;
+### 第三步：输出要求 (Output)
+仅返回有效 JSON，不含 markdown 或任何说明文字：
+{"totalRows":<integer>,"landmarks":[{"rowNumber":1,"yMin":0.85,"yMax":0.95},{"rowNumber":2,"yMin":0.75,"yMax":0.84},...]}
+
+### 第四步：输出辅助思考过程 (Reasoning Summary for Debug)
+把第一步思维链的分析结果写在 JSON 输出的下方，格式示例：
+R1(→): [x, dc, dc, x] ×6, 总针数18, yMin≈0.85, yMax≈0.95
+R2(←): [dc, ch1, dc] ×8, 总针数24, yMin≈0.74, yMax≈0.84
+...
+`;
 }
 
 // function buildCircularPrompt(cx: number, cy: number): string {
@@ -161,9 +177,10 @@ export async function POST(req: NextRequest) {
       const jsonEnd = raw.lastIndexOf("}");
       const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
-      if (mode === "circular") {
-        const reasoning = raw.slice(jsonEnd + 1).trim();
-        if (reasoning) console.log("[parse-crochet] Round analysis:\n", reasoning);
+      const reasoning = raw.slice(jsonEnd + 1).trim();
+      if (reasoning) {
+        const label = mode === "circular" ? "Round analysis" : "Row analysis";
+        console.log(`[parse-crochet] ${label}:\n`, reasoning);
       }
 
       let landmarks: CrochetLandmark[] = Array.isArray(parsed.landmarks)
