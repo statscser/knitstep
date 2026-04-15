@@ -41,6 +41,12 @@ export interface GridData {
   analysisReport?: string; // brief description of recognition difficulty
 }
 
+export interface PatternMeta {
+  legend: Record<string, string>;
+  colors: Record<string, string>;
+  analysisReport: string;
+}
+
 /** Persisted state for the manual row-tracker flow. */
 export interface TrackerData {
   imageSrc: string;  // data URL of the chart image
@@ -48,6 +54,7 @@ export interface TrackerData {
   rows: number;
   stitches: number;
   currentRow: number;
+  patternMeta?: PatternMeta;
 }
 
 export interface Project {

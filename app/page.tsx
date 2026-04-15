@@ -65,6 +65,9 @@ export default function Home() {
   const [lastCrochetMode, setLastCrochetMode]     = useState<import("./lib/types").CrochetMode | null>(null);
   const touchStartX    = useRef<number | null>(null);
   const latestFilesRef = useRef<File[]>([]);
+  // Captures the active grid project ID just before conversion starts, so that
+  // onSuccess can update the existing project instead of creating a duplicate.
+  const prevGridProjectIdRef = useRef<string | null>(null);
   const checklistTopRef  = useRef<HTMLDivElement>(null);
   const rowTrackerRef    = useRef<HTMLDivElement>(null);
   const crochetTrackerRef = useRef<HTMLDivElement>(null);
@@ -85,6 +88,13 @@ export default function Home() {
     latestFilesRef,
     onPreConvert() {
       setIsEditMode(false);
+      // Capture the active project ID before clearing it, so onSuccess can
+      // update an existing grid project instead of creating a duplicate.
+      const activeProject = pm.currentProjectId
+        ? pm.projects.find((p) => p.id === pm.currentProjectId)
+        : null;
+      prevGridProjectIdRef.current =
+        activeProject?.type === "grid" ? activeProject.id : null;
       pm.setCurrentProjectId(null);
       setSteps([]);
       setHasConverted(false);
@@ -102,7 +112,16 @@ export default function Home() {
       setVideoUrl("");
       setInputText("");
       latestFilesRef.current = [];
-      await pm.saveNewProject(parsed, files, lang, gridData);
+      // If the user re-analyzed an existing grid project, update it in place
+      // instead of creating a duplicate entry in the gallery.
+      if (gridData && prevGridProjectIdRef.current) {
+        await pm.updateGridCalibration(prevGridProjectIdRef.current, gridData);
+        pm.setCurrentProjectId(prevGridProjectIdRef.current);
+        prevGridProjectIdRef.current = null;
+      } else {
+        prevGridProjectIdRef.current = null;
+        await pm.saveNewProject(parsed, files, lang, gridData);
+      }
       if (gridData?.confidence !== undefined) {
         setGridConfidenceModal({ confidence: gridData.confidence, analysisReport: gridData.analysisReport });
       }
@@ -225,11 +244,14 @@ export default function Home() {
         try { localStorage.removeItem("knitstep_crochet"); } catch {}
       } else if (project.type === "crochet") {
         // Crochet project: show CrochetTracker only — no checklist.
-        // crochetData is already populated by the separate knitstep_crochet useEffect.
         setSteps([]);
         setHasConverted(false);
         setRowTrackerData(null);
         try { localStorage.removeItem("knitstep_tracker"); } catch {}
+        // Restore directly from IndexedDB — localStorage can silently fail when
+        // imageSrc is large (base64 chart image exceeds ~5 MB quota), so we
+        // cannot rely on the knitstep_crochet localStorage effect alone.
+        if (project.crochetData) setCrochetData(project.crochetData);
       } else {
         // Checklist / grid project: restore steps and mark as converted.
         setSteps(project.steps);
@@ -499,12 +521,12 @@ export default function Home() {
     setSteps([]);
 
     if (project.type === "tracker" && project.trackerData) {
-      const { imageSrc, rect, rows, stitches, currentRow } = project.trackerData;
+      const { imageSrc, rect, rows, stitches, currentRow, patternMeta } = project.trackerData;
       try {
         localStorage.setItem("knitstep_tracker", JSON.stringify({ imageSrc, rect, rows, stitches, currentRow }));
       } catch {}
       try { localStorage.removeItem("knitstep_crochet"); } catch {}
-      setRowTrackerData({ imageSrc, rect, rows, stitches });
+      setRowTrackerData({ imageSrc, rect, rows, stitches, patternMeta });
       setIsInputExpanded(false);
       setShowProjectsModal(false);
       return;
@@ -868,6 +890,11 @@ export default function Home() {
               }}
               onRowChange={(row) => {
                 if (pm.currentProjectId) pm.updateTrackerProgress(pm.currentProjectId, row);
+              }}
+              onPatternMetaReady={(meta) => {
+                if (pm.currentProjectId) pm.updateTrackerPatternMeta(pm.currentProjectId, meta);
+                // Also update local state so switching away and back won't re-call
+                setRowTrackerData((prev) => prev ? { ...prev, patternMeta: meta } : prev);
               }}
             />
           </motion.div>

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "../lib/db";
 import {
   isStoredFile, getAvailableSizes, fileToStoredFile,
-  type Step, type Project, type GridData, type TrackerData, type CrochetData,
+  type Step, type Project, type GridData, type TrackerData, type CrochetData, type PatternMeta,
 } from "../lib/types";
 import type { StoredFile } from "../lib/db";
 
@@ -312,6 +312,26 @@ export function useProjectManager({
     setCurrentProjectId(now.toString());
   }
 
+  /**
+   * Save newly computed gridData to an existing grid project (re-analysis flow).
+   * Preserves everything else — name, id, originalFiles, currentRow progress.
+   */
+  async function updateGridCalibration(id: string, gridData: GridData) {
+    const now = Date.now();
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? { ...p, gridData, rowCount: gridData.totalRows, lastUpdated: now }
+          : p
+      )
+    );
+    try {
+      await db.projects.update(id, { gridData, rowCount: gridData.totalRows, lastUpdated: now });
+    } catch (dbErr) {
+      console.error("[KnitStep] Failed to update grid calibration:", dbErr);
+    }
+  }
+
   /** Persist the current knitting row for a grid project. */
   function updateGridProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
@@ -401,6 +421,22 @@ export function useProjectManager({
       .catch((err) => console.error("[KnitStep] Failed to update crochet progress:", err));
   }
 
+  /** Persist AI pattern-meta for a tracker project after first analysis. */
+  function updateTrackerPatternMeta(id: string, patternMeta: PatternMeta) {
+    const proj = projects.find((p) => p.id === id);
+    if (!proj?.trackerData) return;
+    const now            = Date.now();
+    const newTrackerData = { ...proj.trackerData, patternMeta };
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === id ? { ...p, trackerData: newTrackerData, lastUpdated: now } : p
+      )
+    );
+    db.projects
+      .update(id, { trackerData: newTrackerData, lastUpdated: now })
+      .catch((err) => console.error("[KnitStep] Failed to save patternMeta:", err));
+  }
+
   /** Persist the current row for a tracker project. */
   function updateTrackerProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
@@ -436,8 +472,10 @@ export function useProjectManager({
     handleLoadProject,
     handleDeleteProject,
     handleRenameProject,
+    updateGridCalibration,
     updateGridProgress,
     saveTrackerProject,
+    updateTrackerPatternMeta,
     updateTrackerProgress,
     saveCrochetProject,
     updateCrochetCalibration,

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { CropRect } from "./GridCalibrator";
-import type { Lang } from "../../lib/types";
+import type { Lang, PatternMeta } from "../../lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ export interface RowTrackerState {
   rect: CropRect;
   rows: number;
   stitches: number;
+  patternMeta?: PatternMeta;
 }
 
 interface RowTrackerProps extends RowTrackerState {
@@ -18,12 +19,8 @@ interface RowTrackerProps extends RowTrackerState {
   onReset: () => void;
   /** Called whenever the active row changes — used to persist progress to the DB. */
   onRowChange?: (row: number) => void;
-}
-
-interface PatternMeta {
-  legend: Record<string, string>;
-  colors: Record<string, string>;
-  analysisReport: string;
+  /** Called once when AI pattern analysis completes — caller persists to IndexedDB. */
+  onPatternMetaReady?: (meta: PatternMeta) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -36,7 +33,7 @@ const C_BORDER    = "#E0D4CA";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh", onReset, onRowChange }: RowTrackerProps) {
+export default function RowTracker({ imageSrc, rect, rows, stitches, patternMeta: patternMetaProp, lang = "zh", onReset, onRowChange, onPatternMetaReady }: RowTrackerProps) {
   const zh = lang === "zh";
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -48,7 +45,8 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh"
     } catch { return 1; }
   });
 
-  const [patternMeta, setPatternMeta] = useState<PatternMeta | null>(null);
+  // Seed from persisted prop (IndexedDB) so we never call the API again after first fetch
+  const [patternMeta, setPatternMeta] = useState<PatternMeta | null>(patternMetaProp ?? null);
 
   // ── Persist all tracker state on change; notify parent for DB save ─────────
   useEffect(() => {
@@ -60,8 +58,13 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh"
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageSrc, rect, rows, stitches, currentRow]);
 
-  // ── Silent AI analysis on mount ────────────────────────────────────────────
+  // ── Silent AI analysis — only runs when patternMeta hasn't been stored yet ──
   useEffect(() => {
+    // Already have it (loaded from IndexedDB) — skip the API call entirely
+    if (patternMetaProp) return;
+
+    const controller = new AbortController();
+
     async function analyze() {
       const img = new Image();
       img.src = imageSrc;
@@ -82,6 +85,7 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh"
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ imageBase64, rows, stitches }),
+        signal:  controller.signal,
       });
       if (!res.ok) return;
 
@@ -91,10 +95,13 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, lang = "zh"
       const report = typeof data.analysisReport === "string" ? data.analysisReport : "";
 
       if (Object.keys(legend).length > 0 || Object.keys(colors).length > 0 || report) {
-        setPatternMeta({ legend, colors, analysisReport: report });
+        const meta: PatternMeta = { legend, colors, analysisReport: report };
+        setPatternMeta(meta);
+        onPatternMetaReady?.(meta); // persist to IndexedDB via parent
       }
     }
     analyze().catch(() => {}); // truly silent — never shows an error
+    return () => controller.abort(); // cancel on cleanup (fixes StrictMode double-invoke)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
