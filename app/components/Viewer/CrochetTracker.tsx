@@ -412,52 +412,90 @@ export default function CrochetTracker({
           </div>
         </div>
 
-        {/* ── Floating ▲ / ▼ buttons — outside clip so they can follow row band ── */}
-        <div
-          data-nav-btn
-          style={{
-            position:      "absolute",
-            right:         "0.6rem",
-            top:           `${navTopPct}%`,
-            transform:     "translateY(-50%)",
-            transition:    "top 0.15s ease",
-            display:       "flex",
-            flexDirection: "column",
-            gap:           "0.45rem",
-            zIndex:        10,
-          }}
-        >
-          {([
-            { delta: +1, symbol: "▲", disabled: currentRow >= data.totalRows },
-            { delta: -1, symbol: "▼", disabled: currentRow <= 1             },
-          ]).map(({ delta, symbol, disabled }) => (
-            <button
-              key={symbol}
-              data-nav-btn
-              onClick={(e) => { e.stopPropagation(); goTo(currentRow + delta); }}
-              disabled={disabled}
-              style={{
-                width:          44,
-                height:         44,
-                borderRadius:   "50%",
-                background:     "rgba(255,255,255,0.92)",
-                border:         `1.5px solid ${C_BORDER}`,
-                cursor:         disabled ? "not-allowed" : "pointer",
-                fontSize:       18,
-                fontWeight:     700,
-                color:          disabled ? C_BORDER : C_TEXT,
-                boxShadow:      "0 2px 8px rgba(0,0,0,0.12)",
-                display:        "flex",
-                alignItems:     "center",
-                justifyContent: "center",
-                transition:     "opacity 0.2s",
-                opacity:        disabled ? 0.4 : 1,
-              }}
-            >
-              {symbol}
-            </button>
-          ))}
-        </div>
+        {/* ── Floating nav buttons — outside clip so they can follow row band ── */}
+        {isCircular ? (
+          /* Circular mode: keep original ▲ / ▼ pair */
+          <div
+            data-nav-btn
+            style={{
+              position:      "absolute",
+              right:         "0.6rem",
+              top:           `${navTopPct}%`,
+              transform:     "translateY(-50%)",
+              transition:    "top 0.15s ease",
+              display:       "flex",
+              flexDirection: "column",
+              gap:           "0.45rem",
+              zIndex:        10,
+            }}
+          >
+            {([
+              { delta: +1, symbol: "▲", disabled: currentRow >= data.totalRows },
+              { delta: -1, symbol: "▼", disabled: currentRow <= 1             },
+            ]).map(({ delta, symbol, disabled }) => (
+              <button
+                key={symbol}
+                data-nav-btn
+                onClick={(e) => { e.stopPropagation(); goTo(currentRow + delta); }}
+                disabled={disabled}
+                style={{
+                  width:          44,
+                  height:         44,
+                  borderRadius:   "50%",
+                  background:     "rgba(255,255,255,0.92)",
+                  border:         `1.5px solid ${C_BORDER}`,
+                  cursor:         disabled ? "not-allowed" : "pointer",
+                  fontSize:       18,
+                  fontWeight:     700,
+                  color:          disabled ? C_BORDER : C_TEXT,
+                  boxShadow:      "0 2px 8px rgba(0,0,0,0.12)",
+                  display:        "flex",
+                  alignItems:     "center",
+                  justifyContent: "center",
+                  transition:     "opacity 0.2s",
+                  opacity:        disabled ? 0.4 : 1,
+                }}
+              >
+                {symbol}
+              </button>
+            ))}
+          </div>
+        ) : (
+          /* Flat mode: single green row-number + ↑ button (matches RowTracker style) */
+          <button
+            data-nav-btn
+            onClick={(e) => { e.stopPropagation(); goTo(currentRow + 1); }}
+            disabled={currentRow >= data.totalRows}
+            aria-label="Next row"
+            style={{
+              position:       "absolute",
+              right:          "-0.2rem",
+              top:            `${navTopPct}%`,
+              transform:      "translateY(-50%)",
+              transition:     "top 0.15s ease",
+              zIndex:         10,
+              display:        "flex",
+              flexDirection:  "column",
+              alignItems:     "center",
+              justifyContent: "center",
+              gap:            1,
+              width:          38,
+              padding:        "5px 0",
+              borderRadius:   10,
+              background:     currentRow >= data.totalRows ? "rgba(143,175,150,0.35)" : "rgba(143,175,150,0.92)",
+              border:         "none",
+              color:          "#fff",
+              cursor:         currentRow >= data.totalRows ? "not-allowed" : "pointer",
+              backdropFilter: "blur(6px)",
+              boxShadow:      currentRow >= data.totalRows ? "none" : "0 2px 10px rgba(100,145,110,0.40)",
+            }}
+          >
+            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.03em", lineHeight: 1 }}>
+              R{currentRow}
+            </span>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>↑</span>
+          </button>
+        )}
       </div>
 
       {/* ── Recalibrate button ── */}
