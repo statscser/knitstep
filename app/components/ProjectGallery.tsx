@@ -298,8 +298,8 @@ export default function ProjectGallery({
                             borderRadius: "99px", padding: "1px 7px",
                           }}>
                             {project.crochetData?.mode === "circular"
-                              ? (lang === "zh" ? "圈织" : "Circular")
-                              : (lang === "zh" ? "片织" : "Flat")}
+                              ? (lang === "zh" ? "钩针圈织" : "Circular Crochet")
+                              : (lang === "zh" ? "钩针片织" : "Flat Crochet")}
                           </span>
                         ) : isTracker ? (
                           <span style={{
@@ -307,7 +307,7 @@ export default function ProjectGallery({
                             color: "var(--morandi-green)", background: "rgba(143,175,150,0.14)",
                             borderRadius: "99px", padding: "1px 7px",
                           }}>
-                            {lang === "zh" ? "行追踪" : "Tracker"}
+                            {lang === "zh" ? "行追踪" : "Row Tracker"}
                           </span>
                         ) : <span />}
                         <div onClick={(e) => e.stopPropagation()}>
