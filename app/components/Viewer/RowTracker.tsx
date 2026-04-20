@@ -106,9 +106,8 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, initialRow,
       }
     }
     analyze().catch(() => {}); // truly silent — never shows an error
-    return () => controller.abort(); // cancel on cleanup (fixes StrictMode double-invoke)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once on mount
+    return () => controller.abort(); // abort if patternMetaProp arrives before API returns
+  }, [patternMetaProp]); // re-check when DB data arrives; guard at top prevents re-call
 
   // ── Overlay geometry (all values as % of image container height/width) ─────
   const rectH = rect.br.y - rect.tl.y;

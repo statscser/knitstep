@@ -135,8 +135,11 @@ export default function Home() {
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
-  // Load persisted row tracker from localStorage on mount
+  // Load persisted row tracker from localStorage on mount.
+  // Skip if there's a saved project ID — the DB restore will provide full data including patternMeta,
+  // and mounting RowTracker without it would trigger a redundant analyze-pattern API call.
   useEffect(() => {
+    if (localStorage.getItem("knitstep-current-project")) return;
     try {
       const saved = JSON.parse(localStorage.getItem("knitstep_tracker") ?? "{}");
       if (saved.imageSrc && saved.rect && saved.rows) {
