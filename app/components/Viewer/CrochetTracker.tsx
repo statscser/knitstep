@@ -380,14 +380,14 @@ export default function CrochetTracker({
           overflow:     "hidden",
           border:       `1.5px solid ${C_BORDER}`,
         }}>
-          <img
+          {data.imageSrc && <img
             ref={imgRef}
             src={data.imageSrc}
             alt="crochet chart"
             draggable={false}
             onLoad={measureContainer}
             style={{ width: "100%", display: "block" }}
-          />
+          />}
 
           {isCircular ? renderCircularOverlay() : renderFlatOverlay()}
 

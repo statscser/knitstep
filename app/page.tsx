@@ -254,8 +254,9 @@ export default function Home() {
     }
 
     fetchThumbnails();
+  // pm.projects intentionally read via closure — array-in-deps causes React size-mismatch warning
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showProjectsModal, pm.projects, pm.user]);
+  }, [showProjectsModal, pm.user?.id]);
 
   // Auto-scroll to RowTracker whenever it first appears (calibration complete or project load)
   useEffect(() => {
