@@ -185,6 +185,19 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, [lightboxIndex, uploadedImages.length]);
 
+  // Propagate background sync updates to the active RowTracker.
+  // syncOnLogin calls setProjects() after merging — if the current project's row changed,
+  // update rowTrackerData.initialRow so RowTracker's sync-response effect picks it up.
+  useEffect(() => {
+    if (!pm.currentProjectId || !rowTrackerData) return;
+    const proj = pm.projects.find((p) => p.id === pm.currentProjectId);
+    const syncedRow = proj?.trackerData?.currentRow;
+    if (typeof syncedRow === "number" && syncedRow !== rowTrackerData.initialRow) {
+      setRowTrackerData((prev) => prev ? { ...prev, initialRow: syncedRow } : prev);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pm.projects, pm.currentProjectId]);
+
   // Auto-scroll to RowTracker whenever it first appears (calibration complete or project load)
   useEffect(() => {
     if (!rowTrackerData) return;

@@ -53,6 +53,14 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, initialRow,
   // Seed from persisted prop (IndexedDB) so we never call the API again after first fetch
   const [patternMeta, setPatternMeta] = useState<PatternMeta | null>(patternMetaProp ?? null);
 
+  // ── Apply cross-device sync updates: if initialRow changes after mount (from syncOnLogin),
+  //    update our row state so the UI reflects the latest progress from another device.
+  useEffect(() => {
+    if (typeof initialRow === "number" && initialRow >= 1) {
+      setCurrentRow(initialRow);
+    }
+  }, [initialRow]);
+
   // ── Persist all tracker state on change; notify parent for DB save ─────────
   useEffect(() => {
     try {
