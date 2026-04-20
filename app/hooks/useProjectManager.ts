@@ -35,7 +35,11 @@ export function useProjectManager({
   mounted: boolean;
 }) {
   const [projects, setProjects]                     = useState<Project[]>([]);
-  const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
+  const [currentProjectId, _setCurrentProjectId]   = useState<string | null>(null);
+  function setCurrentProjectId(id: string | null) {
+    currentProjectIdRef.current = id;
+    _setCurrentProjectId(id);
+  }
   const [selectedSize, setSelectedSize]             = useState<string>("all");
   const [storageWarning, setStorageWarning]         = useState(false);
 
@@ -59,6 +63,9 @@ export function useProjectManager({
 
   // Guard: prevent concurrent syncOnLogin calls (e.g. if SIGNED_IN fires twice)
   const syncInProgressRef = useRef(false);
+
+  // Mirror of currentProjectId in a ref so syncOnLogin (closure) sees the live value
+  const currentProjectIdRef = useRef<string | null>(null);
 
   // Stash loadProjects args so INITIAL_SESSION can call onProjectRestored
   const pendingRestoreRef = useRef<{
@@ -86,8 +93,7 @@ export function useProjectManager({
         }
 
         if (event === "INITIAL_SESSION" && nextUser) {
-          // Page reloaded while already logged in — load this user's projects from
-          // local Dexie cache (they were synced during the original login).
+          // 1. Show local Dexie cache immediately (fast startup)
           const rows = await db.projects
             .orderBy("lastUpdated").reverse()
             .filter((p) => p.userId === nextUser.id)
@@ -106,6 +112,9 @@ export function useProjectManager({
               pending.onProjectRestored(active);
             }
           }
+
+          // 2. Background sync to pick up changes from other devices (deletions, edits, new projects)
+          syncOnLogin(nextUser);  // intentionally no await — runs in background
         }
 
         if (event === "SIGNED_OUT") {
@@ -144,6 +153,19 @@ export function useProjectManager({
       localStorage.removeItem("knitstep-current-project");
     }
   }, [currentProjectId]);
+
+  // ── Re-sync when tab becomes visible (picks up changes from other devices) ──
+  useEffect(() => {
+    if (!user) return;
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        syncOnLogin(user!);  // syncInProgressRef guard prevents double-runs
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // ── Sync checklist progress → storage whenever steps change ───────────────
   useEffect(() => {
@@ -262,11 +284,19 @@ export function useProjectManager({
       const cloudStore = new SupabaseProjectStore(getSupabase(), loggedInUser.id);
 
       // 1. Fetch both sides
+      // Track whether the cloud fetch succeeded — if it fails we must NOT apply
+      // toDeleteLocally, because the empty list would look like all projects were
+      // deleted on the cloud side.
+      let cloudFetchOk = true;
       const [localRows, cloudProjects] = await Promise.all([
         db.projects.orderBy("lastUpdated").reverse()
           .filter((p) => !p.userId || p.userId === loggedInUser.id)
           .toArray(),
-        cloudStore.fetchCloudProjects().catch(() => [] as Project[]),
+        cloudStore.fetchCloudProjects().catch((err) => {
+          cloudFetchOk = false;
+          console.warn("[KnitStep] Cloud fetch failed, skipping deletions:", err);
+          return [] as Project[];
+        }),
       ]);
       const localProjects = localRows.map(dbToProject);
 
@@ -277,7 +307,7 @@ export function useProjectManager({
       }
 
       // 3. Plan the sync
-      const { toUpload, toDownload, toMerge } = planSync(localProjects, cloudProjects);
+      const { toUpload, toDownload, toMerge, toDeleteLocally } = planSync(localProjects, cloudProjects);
 
       // 4. Upload local-only projects to cloud (sequential to avoid Supabase auth-lock race)
       for (const p of toUpload) {
@@ -302,7 +332,20 @@ export function useProjectManager({
         }
       }
 
-      // 7. Reload from local cache and update state
+      // 7. Delete locally cached projects that were deleted on another device
+      // Only safe to do when the cloud fetch succeeded — otherwise an empty cloud
+      // list would incorrectly trigger deletion of all synced local projects.
+      if (cloudFetchOk) {
+        for (const p of toDeleteLocally) {
+          await db.projects.delete(p.id);
+        }
+        // Deselect the active project if it was just removed
+        if (toDeleteLocally.some((p) => p.id === currentProjectIdRef.current)) {
+          setCurrentProjectId(null);
+        }
+      }
+
+      // 8. Reload from local cache and update state
       const mergedRows = await db.projects
         .orderBy("lastUpdated").reverse()
         .filter((p) => p.userId === loggedInUser.id)

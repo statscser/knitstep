@@ -12,6 +12,8 @@ export interface RowTrackerState {
   rows: number;
   stitches: number;
   patternMeta?: PatternMeta;
+  /** DB-persisted row to restore on a new device (takes priority over localStorage). */
+  initialRow?: number;
 }
 
 interface RowTrackerProps extends RowTrackerState {
@@ -33,12 +35,15 @@ const C_BORDER    = "#E0D4CA";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function RowTracker({ imageSrc, rect, rows, stitches, patternMeta: patternMetaProp, lang = "zh", onReset, onRowChange, onPatternMetaReady }: RowTrackerProps) {
+export default function RowTracker({ imageSrc, rect, rows, stitches, initialRow, patternMeta: patternMetaProp, lang = "zh", onReset, onRowChange, onPatternMetaReady }: RowTrackerProps) {
   const zh = lang === "zh";
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Row 1 is always the starting row (bottom of chart)
+  // Row 1 is always the starting row (bottom of chart).
+  // initialRow (from DB) takes priority so progress syncs across devices.
+  // Fall back to localStorage for same-device continuity when initialRow is absent.
   const [currentRow, setCurrentRow] = useState<number>(() => {
+    if (typeof initialRow === "number" && initialRow >= 1) return initialRow;
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
       return typeof saved.currentRow === "number" ? saved.currentRow : 1;
@@ -227,12 +232,14 @@ export default function RowTracker({ imageSrc, rect, rows, stitches, patternMeta
           className="relative w-full rounded-2xl overflow-hidden"
           style={{ border: `1.5px solid ${C_BORDER}`, background: "var(--bg-card)" }}
         >
-          <img
-            src={imageSrc}
-            alt="Knitting chart"
-            className="w-full h-auto block"
-            draggable={false}
-          />
+          {imageSrc && (
+            <img
+              src={imageSrc}
+              alt="Knitting chart"
+              className="w-full h-auto block"
+              draggable={false}
+            />
+          )}
 
           {/* Dimmed overlay for completed rows (rows 1 … currentRow−1) */}
           {currentRow > 1 && (

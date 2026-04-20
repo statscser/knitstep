@@ -29,10 +29,11 @@ export function mergeSteps(base: Step[], other: Step[]): Step[] {
 // ─── Sync conflict resolution ─────────────────────────────────────────────────
 
 export interface SyncResult {
-  toUpload:   Project[];  // local-only → push to cloud
-  toDownload: Project[];  // cloud-only → pull to local
-  toMerge:    { local: Project; cloud: Project }[];  // both sides changed
-  upToDate:   Project[];  // identical lastUpdated, no action needed
+  toUpload:        Project[];  // local-only, origin!="synced" → push to cloud
+  toDownload:      Project[];  // cloud-only → pull to local
+  toMerge:         { local: Project; cloud: Project }[];  // both sides changed
+  upToDate:        Project[];  // identical lastUpdated, no action needed
+  toDeleteLocally: Project[];  // origin="synced" + not in cloud → deleted on another device
 }
 
 /**
@@ -46,14 +47,22 @@ export function planSync(
   const localMap  = new Map(localProjects.map((p) => [p.id, p]));
   const cloudMap  = new Map(cloudProjects.map((p) => [p.id, p]));
 
-  const toUpload:   Project[]                          = [];
-  const toDownload: Project[]                          = [];
-  const toMerge:    { local: Project; cloud: Project }[] = [];
-  const upToDate:   Project[]                          = [];
+  const toUpload:        Project[]                          = [];
+  const toDownload:      Project[]                          = [];
+  const toMerge:         { local: Project; cloud: Project }[] = [];
+  const upToDate:        Project[]                          = [];
+  const toDeleteLocally: Project[]                          = [];
 
   for (const [id, local] of localMap) {
     if (!cloudMap.has(id)) {
-      toUpload.push(local);
+      // origin="synced" means it was downloaded from cloud — if it's gone from
+      // cloud now, it was deleted on another device.  Delete locally instead of
+      // re-uploading (which would revert the deletion).
+      if ((local as any).origin === "synced") {
+        toDeleteLocally.push(local);
+      } else {
+        toUpload.push(local);
+      }
     } else {
       const cloud = cloudMap.get(id)!;
       if (local.lastUpdated === cloud.lastUpdated) {
@@ -69,7 +78,7 @@ export function planSync(
     }
   }
 
-  return { toUpload, toDownload, toMerge, upToDate };
+  return { toUpload, toDownload, toMerge, upToDate, toDeleteLocally };
 }
 
 /**

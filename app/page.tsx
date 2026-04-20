@@ -249,8 +249,8 @@ export default function Home() {
         setHasConverted(false);
         setCrochetData(null);
         try { localStorage.removeItem("knitstep_crochet"); } catch {}
-        const { imageSrc, rect, rows, stitches, patternMeta } = project.trackerData!;
-        setRowTrackerData({ imageSrc, rect, rows, stitches, patternMeta });
+        const { imageSrc, rect, rows, stitches, currentRow, patternMeta } = project.trackerData!;
+        setRowTrackerData({ imageSrc, rect, rows, stitches, patternMeta, initialRow: currentRow });
       } else if (project.type === "crochet") {
         // Cloud-synced crochet projects have imageSrc="" — fetch from Storage on demand
         if (project.crochetData && !project.crochetData.imageSrc && project.crochetData._imagePath) {
@@ -539,7 +539,7 @@ export default function Home() {
         localStorage.setItem("knitstep_tracker", JSON.stringify({ imageSrc, rect, rows, stitches, currentRow }));
       } catch {}
       try { localStorage.removeItem("knitstep_crochet"); } catch {}
-      setRowTrackerData({ imageSrc, rect, rows, stitches, patternMeta });
+      setRowTrackerData({ imageSrc, rect, rows, stitches, patternMeta, initialRow: currentRow });
       setIsInputExpanded(false);
       setShowProjectsModal(false);
       return;
