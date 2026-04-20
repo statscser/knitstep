@@ -19,6 +19,8 @@ import CrochetCalibrator, { type CrochetCalibrationResult } from "./components/V
 import CrochetTracker from "./components/Viewer/CrochetTracker";
 import ProjectGallery from "./components/ProjectGallery";
 import ReferencePanel from "./components/ReferencePanel";
+import AuthModal     from "./components/AuthModal";
+import AuthButton    from "./components/AuthButton";
 import {
   Folder, ChevronUp, ChevronLeft, ChevronRight, FileText, X, Target,
 } from "lucide-react";
@@ -50,6 +52,7 @@ export default function Home() {
   const [highlightedStepId, setHighlightedStepId]   = useState<number | null>(null);
   const [activeMenuStepId, setActiveMenuStepId]     = useState<number | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
+  const [showAuthModal, setShowAuthModal]           = useState(false);
   const [gridConfidenceModal, setGridConfidenceModal] = useState<{ confidence: number; analysisReport?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded]       = useState(true);
   const [isGridMode, setIsGridMode]       = useState(false);
@@ -231,26 +234,32 @@ export default function Home() {
     pm.markHydrated();
     setMounted(true);
 
-    // Load projects from IndexedDB; restore active project if found
-    pm.loadProjects(savedProjectId, (project) => {
+    // Load projects from IndexedDB; restore active project if found.
+    // The callback is async so cloud-synced projects can rehydrate their images.
+    pm.loadProjects(savedProjectId, async (project) => {
       pm.selectProject(project);
       setIsInputExpanded(false);
 
-      if (project.type === "tracker") {
-        // Tracker project: show RowTracker only — no checklist.
+      if (project.type === "tracker" && project.trackerData) {
+        // Cloud-synced tracker projects have imageSrc="" — fetch from Storage on demand
+        if (!project.trackerData.imageSrc && project.trackerData._imagePath) {
+          project = await pm.rehydrateIfNeeded(project);
+        }
         setSteps([]);
         setHasConverted(false);
         setCrochetData(null);
         try { localStorage.removeItem("knitstep_crochet"); } catch {}
+        const { imageSrc, rect, rows, stitches, patternMeta } = project.trackerData!;
+        setRowTrackerData({ imageSrc, rect, rows, stitches, patternMeta });
       } else if (project.type === "crochet") {
-        // Crochet project: show CrochetTracker only — no checklist.
+        // Cloud-synced crochet projects have imageSrc="" — fetch from Storage on demand
+        if (project.crochetData && !project.crochetData.imageSrc && project.crochetData._imagePath) {
+          project = await pm.rehydrateIfNeeded(project);
+        }
         setSteps([]);
         setHasConverted(false);
         setRowTrackerData(null);
         try { localStorage.removeItem("knitstep_tracker"); } catch {}
-        // Restore directly from IndexedDB — localStorage can silently fail when
-        // imageSrc is large (base64 chart image exceeds ~5 MB quota), so we
-        // cannot rely on the knitstep_crochet localStorage effect alone.
         if (project.crochetData) setCrochetData(project.crochetData);
       } else {
         // Checklist / grid project: restore steps and mark as converted.
@@ -506,8 +515,8 @@ export default function Home() {
 
   // ── Project action wrappers (add UI behaviour on top of pm) ────────────────
 
-  function handleLoadProject(id: string) {
-    const project = pm.handleLoadProject(id);
+  async function handleLoadProject(id: string) {
+    let project = pm.handleLoadProject(id);
     if (!project) return;
 
     // Clear all viewer state before switching projects.
@@ -521,7 +530,11 @@ export default function Home() {
     setSteps([]);
 
     if (project.type === "tracker" && project.trackerData) {
-      const { imageSrc, rect, rows, stitches, currentRow, patternMeta } = project.trackerData;
+      // Cloud-synced projects have imageSrc="" — fetch from Storage on demand
+      if (!project.trackerData.imageSrc && project.trackerData._imagePath) {
+        project = await pm.rehydrateIfNeeded(project);
+      }
+      const { imageSrc, rect, rows, stitches, currentRow, patternMeta } = project.trackerData!;
       try {
         localStorage.setItem("knitstep_tracker", JSON.stringify({ imageSrc, rect, rows, stitches, currentRow }));
       } catch {}
@@ -533,11 +546,15 @@ export default function Home() {
     }
 
     if (project.type === "crochet" && project.crochetData) {
+      // Cloud-synced projects have imageSrc="" — fetch from Storage on demand
+      if (!project.crochetData.imageSrc && project.crochetData._imagePath) {
+        project = await pm.rehydrateIfNeeded(project);
+      }
       try {
         localStorage.setItem("knitstep_crochet", JSON.stringify(project.crochetData));
       } catch {}
       try { localStorage.removeItem("knitstep_tracker"); } catch {}
-      setCrochetData(project.crochetData);
+      setCrochetData(project.crochetData!);
       setIsInputExpanded(false);
       setShowProjectsModal(false);
       return;
@@ -657,10 +674,29 @@ export default function Home() {
       className="print-container relative min-h-screen flex flex-col items-center py-16 px-4"
       style={{ background: "var(--bg)", fontFamily: "var(--font-body)" }}
     >
-      {/* ── Language toggle — fixed top-right ── */}
-      <div className="no-print absolute top-5 right-5 z-10">
+      {/* ── Top-right: AuthButton + Language toggle ── */}
+      <div className="no-print absolute top-5 right-5 z-10 flex items-center gap-2">
+        <AuthButton
+          user={pm.user}
+          authLoading={pm.authLoading}
+          isSyncing={pm.isSyncing}
+          lang={lang}
+          onOpenModal={() => setShowAuthModal(true)}
+          onLogout={pm.logout}
+        />
         <LangToggle lang={lang} onToggle={toggleLang} />
       </div>
+
+      {/* ── Auth modal ── */}
+      {showAuthModal && (
+        <AuthModal
+          lang={lang}
+          onLogin={pm.login}
+          onSignup={pm.signup}
+          onLoginGoogle={pm.loginWithGoogle}
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
 
       {/* ── Header ── */}
       <motion.header
@@ -1303,6 +1339,33 @@ export default function Home() {
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Sync progress toast ── */}
+      <AnimatePresence>
+        {pm.isSyncing && (
+          <motion.div
+            key="sync-toast"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+            className="no-print fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium"
+            style={{
+              background: "rgba(143,175,150,0.95)", color: "#fff",
+              boxShadow: "0 4px 20px -4px rgba(100,145,110,0.30)",
+              backdropFilter: "blur(8px)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"
+              style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
+              <path d="M12 2 a10 10 0 0 1 10 10" />
+            </svg>
+            {lang === "zh" ? "正在同步云端数据..." : "Syncing to cloud…"}
           </motion.div>
         )}
       </AnimatePresence>

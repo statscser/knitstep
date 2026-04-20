@@ -1,15 +1,29 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "../lib/supabase/client";
 import { db } from "../lib/db";
+import type { DbProject } from "../lib/db";
 import {
   isStoredFile, getAvailableSizes, fileToStoredFile,
   type Step, type Project, type GridData, type TrackerData, type CrochetData, type PatternMeta,
 } from "../lib/types";
 import type { StoredFile } from "../lib/db";
+import { createProjectStore } from "../lib/stores/createProjectStore";
+import { SupabaseProjectStore } from "../lib/stores/SupabaseProjectStore";
+import { planSync, resolveConflict } from "../lib/stores/syncUtils";
+import { dbToProject } from "../lib/projectStore";
+
+// Lazy singleton: only created in the browser (never during SSR prerender)
+let _supabase: ReturnType<typeof createClient> | null = null;
+function getSupabase() {
+  if (!_supabase) _supabase = createClient();
+  return _supabase;
+}
 
 // ─── useProjectManager ────────────────────────────────────────────────────────
-// Owns all IndexedDB state and operations, plus the blob-URL lifecycle for the
+// Owns all storage state and operations, plus the blob-URL lifecycle for the
 // reference panel.  Pass `steps` (from page state) so the sync effect can write
 // the latest checklist progress to the database without page.tsx touching db.
 
@@ -20,10 +34,15 @@ export function useProjectManager({
   steps: Step[];
   mounted: boolean;
 }) {
-  const [projects, setProjects]             = useState<Project[]>([]);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
-  const [selectedSize, setSelectedSize]     = useState<string>("all");
-  const [storageWarning, setStorageWarning] = useState(false);
+  const [projects, setProjects]                     = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId]     = useState<string | null>(null);
+  const [selectedSize, setSelectedSize]             = useState<string>("all");
+  const [storageWarning, setStorageWarning]         = useState(false);
+
+  // Auth state
+  const [user, setUser]             = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isSyncing, setIsSyncing]   = useState(false);
 
   // Reference-panel file state
   const [currentProjectFiles, setCurrentProjectFiles] = useState<{ url: string; mimeType: string }[]>([]);
@@ -35,6 +54,58 @@ export function useProjectManager({
   // restore completes.  Set to true via markHydrated() called by page.tsx.
   const hydrated = useRef(false);
 
+  // Steps cloud-write debounce timer
+  const stepsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Guard: prevent concurrent syncOnLogin calls (e.g. if SIGNED_IN fires twice)
+  const syncInProgressRef = useRef(false);
+
+  // ── Build the store based on auth state ───────────────────────────────────
+  const store = useMemo(
+    () => createProjectStore(user, getSupabase()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.id],
+  );
+
+  // ── Auth: subscribe to Supabase auth state changes ───────────────────────
+  useEffect(() => {
+    const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
+      async (event, session) => {
+        const nextUser = session?.user ?? null;
+        setUser(nextUser);
+        setAuthLoading(false);
+
+        if (event === "SIGNED_IN" && nextUser) {
+          await syncOnLogin(nextUser);
+        }
+
+        if (event === "SIGNED_OUT") {
+          // Remove cloud-cached projects from IndexedDB (keep local-origin ones)
+          await db.projects
+            .filter((p) => p.userId === (nextUser === null ? undefined : undefined) && p.origin === "synced")
+            .delete();
+          // Reload anonymous projects
+          const anonRows = await db.projects
+            .orderBy("lastUpdated").reverse()
+            .filter((p) => !p.userId)
+            .toArray();
+          setProjects(anonRows.map(dbToProject));
+          setCurrentProjectId(null);
+          try { localStorage.removeItem("knitstep-current-project"); } catch {}
+        }
+      },
+    );
+
+    // Eagerly check current session so authLoading resolves fast on reload
+    getSupabase().auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Persist active project ID to localStorage ──────────────────────────────
   useEffect(() => {
     if (!hydrated.current) return;
@@ -45,7 +116,7 @@ export function useProjectManager({
     }
   }, [currentProjectId]);
 
-  // ── Sync checklist progress → IndexedDB whenever steps change ──────────────
+  // ── Sync checklist progress → storage whenever steps change ───────────────
   useEffect(() => {
     if (!hydrated.current) return;
     if (!currentProjectId) return;
@@ -57,13 +128,27 @@ export function useProjectManager({
           : p
       )
     );
-    db.projects
-      .update(currentProjectId, {
-        steps,
-        rowCount: steps.filter((s) => !s.isHeader).length,
-        lastUpdated: now,
-      })
-      .catch((err) => console.error("[KnitStep] Failed to sync project:", err));
+
+    const patch: Partial<Omit<DbProject, "id">> = {
+      steps,
+      rowCount: steps.filter((s) => !s.isHeader).length,
+      lastUpdated: now,
+    };
+
+    if (user) {
+      // Local write immediately; debounce cloud write to avoid hammering Supabase
+      db.projects.update(currentProjectId, patch).catch(console.error);
+      if (stepsDebounceRef.current) clearTimeout(stepsDebounceRef.current);
+      stepsDebounceRef.current = setTimeout(() => {
+        store.patchProject(currentProjectId, patch).catch(
+          (err) => console.error("[KnitStep] Failed to sync steps to cloud:", err),
+        );
+      }, 2000);
+    } else {
+      store.patchProject(currentProjectId, patch).catch(
+        (err) => console.error("[KnitStep] Failed to sync project:", err),
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [steps, currentProjectId]);
 
@@ -71,14 +156,14 @@ export function useProjectManager({
   useEffect(() => {
     if (!hydrated.current) return;
     if (!currentProjectId) return;
-    db.projects
-      .update(currentProjectId, { selectedSize })
+    store
+      .patchProject(currentProjectId, { selectedSize })
       .catch((err) => console.error("[KnitStep] Failed to persist selectedSize:", err));
-  }, [selectedSize, currentProjectId]);
+  }, [selectedSize, currentProjectId, store]);
 
-  // ── Storage usage monitor — warn at > 50 MB ────────────────────────────────
+  // ── Storage usage monitor — warn at > 50 MB (local-only users) ────────────
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || user) return; // cloud users have no local cap
     let totalBytes = 0;
     for (const p of projects) {
       for (const f of p.originalFiles ?? []) {
@@ -87,12 +172,9 @@ export function useProjectManager({
       if (p.originalFile) totalBytes += (p.originalFile as Blob).size;
     }
     setStorageWarning(totalBytes > 50 * 1024 * 1024);
-  }, [projects, mounted]);
+  }, [projects, mounted, user]);
 
   // ── Generate blob URLs for the reference panel ─────────────────────────────
-  // Re-runs whenever the active project changes.  All created URLs are revoked
-  // in the cleanup function to prevent memory leaks / mobile "Undefined Pointer"
-  // crashes caused by dangling blob object references.
   useEffect(() => {
     setCurrentFileIndex(0);
     setHasClickedTarget(false);
@@ -102,10 +184,6 @@ export function useProjectManager({
       return;
     }
 
-    // `projects` is read from closure — it holds the latest array because
-    // selectProject / saveNewProject always set currentProjectId in the same
-    // React batch as setProjects(), so by the time this effect runs the array
-    // is already up to date.
     const proj = projects.find((p) => p.id === currentProjectId);
     const rawFiles =
       proj?.originalFiles && proj.originalFiles.length > 0
@@ -145,18 +223,110 @@ export function useProjectManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProjectId]);
 
+  // ── Login sync ─────────────────────────────────────────────────────────────
+
+  async function syncOnLogin(loggedInUser: User) {
+    if (syncInProgressRef.current) return;
+    syncInProgressRef.current = true;
+    setIsSyncing(true);
+    try {
+      const cloudStore = new SupabaseProjectStore(getSupabase(), loggedInUser.id);
+
+      // 1. Fetch both sides
+      const [localRows, cloudProjects] = await Promise.all([
+        db.projects.orderBy("lastUpdated").reverse()
+          .filter((p) => !p.userId || p.userId === loggedInUser.id)
+          .toArray(),
+        cloudStore.fetchCloudProjects().catch(() => [] as Project[]),
+      ]);
+      const localProjects = localRows.map(dbToProject);
+
+      // 2. Tag all currently anonymous local projects with this userId
+      const anonIds = localRows.filter((r) => !r.userId).map((r) => r.id);
+      if (anonIds.length > 0) {
+        await db.projects.where("id").anyOf(anonIds).modify({ userId: loggedInUser.id, origin: "local" });
+      }
+
+      // 3. Plan the sync
+      const { toUpload, toDownload, toMerge } = planSync(localProjects, cloudProjects);
+
+      // 4. Upload local-only projects to cloud (sequential to avoid Supabase auth-lock race)
+      for (const p of toUpload) {
+        await cloudStore.putProject({ ...p, origin: "local" } as any);
+      }
+
+      // 5. Download cloud-only projects to local cache (sequential)
+      for (const p of toDownload) {
+        await cloudStore.cacheCloudProject(p);
+      }
+
+      // 6. Resolve conflicts
+      for (const { local, cloud } of toMerge) {
+        const merged = resolveConflict(local, cloud);
+        // Upload the merged version to cloud if local is newer or merged has more checks
+        if (local.lastUpdated >= cloud.lastUpdated) {
+          await cloudStore.putProject({ ...merged, origin: "local" } as any);
+        } else {
+          // Cloud wins overall; write merged to both
+          await cloudStore.cacheCloudProject(merged);
+          await cloudStore.putProject({ ...merged, origin: "synced" } as any).catch(() => {});
+        }
+      }
+
+      // 7. Reload from local cache and update state
+      const mergedRows = await db.projects
+        .orderBy("lastUpdated").reverse()
+        .filter((p) => p.userId === loggedInUser.id)
+        .toArray();
+      setProjects(mergedRows.map(dbToProject));
+
+    } catch (err) {
+      console.error("[KnitStep] Sync failed:", err);
+    } finally {
+      setIsSyncing(false);
+      syncInProgressRef.current = false;
+    }
+  }
+
+  // ── Auth actions ───────────────────────────────────────────────────────────
+
+  async function login(email: string, password: string): Promise<void> {
+    const { error } = await getSupabase().auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  }
+
+  async function signup(email: string, password: string): Promise<void> {
+    const { error } = await getSupabase().auth.signUp({ email, password });
+    if (error) throw error;
+  }
+
+  async function loginWithGoogle(): Promise<void> {
+    const { error } = await getSupabase().auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/callback`,
+      },
+    });
+    if (error) throw error;
+  }
+
+  async function logout(): Promise<void> {
+    const prevUserId = user?.id;
+    await getSupabase().auth.signOut();
+    // Clean up cloud-synced cache for this user
+    if (prevUserId) {
+      await db.projects
+        .filter((p) => p.userId === prevUserId && p.origin === "synced")
+        .delete();
+    }
+  }
+
   // ── Public API ──────────────────────────────────────────────────────────────
 
-  /** Call once from page.tsx's hydration effect, just before setMounted(true). */
   function markHydrated() {
     hydrated.current = true;
   }
 
-  /**
-   * Load all projects from IndexedDB (with legacy localStorage migration).
-   * Calls onProjectRestored if the previously active project is found so
-   * page.tsx can restore steps / hasConverted / isInputExpanded.
-   */
   async function loadProjects(
     savedProjectId: string | null,
     onProjectRestored: (project: Project) => void,
@@ -175,6 +345,8 @@ export function useProjectManager({
                 steps:       p.steps ?? [],
                 rowCount:    p.rowCount ?? 0,
                 lastUpdated: p.lastUpdated ?? Date.now(),
+                userId:      null,
+                origin:      "local" as const,
               }))
             );
           }
@@ -182,12 +354,7 @@ export function useProjectManager({
         localStorage.removeItem("knitstep-projects");
       }
 
-      const dbProjects = await db.projects.orderBy("lastUpdated").reverse().toArray();
-      const loaded: Project[] = dbProjects.map((p) => ({
-        ...p,
-        availableSizes: p.availableSizes ?? getAvailableSizes(p.steps),
-        selectedSize:   p.selectedSize   ?? "all",
-      }));
+      const loaded = await store.getAllProjects();
       setProjects(loaded);
 
       const activeProject = savedProjectId
@@ -199,15 +366,10 @@ export function useProjectManager({
         localStorage.removeItem("knitstep-current-project");
       }
     } catch (err) {
-      console.error("[KnitStep] Failed to load projects from IndexedDB:", err);
+      console.error("[KnitStep] Failed to load projects:", err);
     }
   }
 
-  /**
-   * Persist a newly converted project to IndexedDB and update local state.
-   * Raw File objects are serialised to StoredFile (base64) for iOS Safari
-   * compatibility.  No-op if parsed contains no actionable steps.
-   */
   async function saveNewProject(parsed: Step[], files: File[], lang: string, gridData?: GridData) {
     if (parsed.filter((s) => !s.isHeader).length === 0 && !gridData) return;
 
@@ -232,52 +394,60 @@ export function useProjectManager({
       availableSizes: getAvailableSizes(parsed),
       selectedSize:   "all",
       type:           gridData ? "grid" : "instruction",
-      gridData:       gridData,
+      gridData,
     };
     setSelectedSize("all");
     try {
-      await db.projects.put(newProject);
+      await store.putProject(newProject);
     } catch (dbErr) {
-      console.error("[KnitStep] Failed to save project to IndexedDB:", dbErr);
+      console.error("[KnitStep] Failed to save project:", dbErr);
     }
     setProjects((prev) => [newProject, ...prev]);
     setCurrentProjectId(now.toString());
   }
 
-  /** Activate a project (sets ID + size; page.tsx handles steps / hasConverted). */
   function selectProject(project: Project) {
     setCurrentProjectId(project.id);
     setSelectedSize(project.selectedSize ?? "all");
   }
 
-  /** Find a project by ID, activate it, and return it (undefined if not found). */
   function handleLoadProject(id: string): Project | undefined {
     const project = projects.find((p) => p.id === id);
     if (project) selectProject(project);
     return project;
   }
 
-  /** Delete a project from state and IndexedDB. */
+  /** Rehydrate a cloud-synced project's images when it's opened. */
+  async function rehydrateIfNeeded(project: Project): Promise<Project> {
+    if (!user) return project;
+    const cloudStore = store as SupabaseProjectStore;
+    if (typeof cloudStore.rehydrate !== "function") return project;
+    try {
+      const rehydrated = await cloudStore.rehydrate(project);
+      if (rehydrated !== project) {
+        setProjects((prev) => prev.map((p) => p.id === project.id ? rehydrated : p));
+      }
+      return rehydrated;
+    } catch {
+      return project;
+    }
+  }
+
   function handleDeleteProject(id: string) {
     setProjects((prev) => prev.filter((p) => p.id !== id));
     if (currentProjectId === id) setCurrentProjectId(null);
-    db.projects
-      .delete(id)
+    store
+      .deleteProject(id)
       .catch((err) => console.error("[KnitStep] Failed to delete project:", err));
   }
 
-  /** Rename a project in state and IndexedDB. */
   function handleRenameProject(id: string, name: string) {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
-    db.projects
-      .update(id, { name })
+    store
+      .patchProject(id, { name })
       .catch((err) => console.error("[KnitStep] Failed to rename project:", err));
   }
 
-  /**
-   * Save a new tracker (manual calibration) project.
-   * The image file is serialised as StoredFile so the project gallery can show a thumbnail.
-   */
   async function saveTrackerProject(trackerData: TrackerData, files: File[], lang: string) {
     const now = Date.now();
     const d   = new Date(now);
@@ -304,7 +474,7 @@ export function useProjectManager({
     };
 
     try {
-      await db.projects.put(newProject);
+      await store.putProject(newProject);
     } catch (dbErr) {
       console.error("[KnitStep] Failed to save tracker project:", dbErr);
     }
@@ -312,10 +482,6 @@ export function useProjectManager({
     setCurrentProjectId(now.toString());
   }
 
-  /**
-   * Save newly computed gridData to an existing grid project (re-analysis flow).
-   * Preserves everything else — name, id, originalFiles, currentRow progress.
-   */
   async function updateGridCalibration(id: string, gridData: GridData) {
     const now = Date.now();
     setProjects((prev) =>
@@ -326,13 +492,12 @@ export function useProjectManager({
       )
     );
     try {
-      await db.projects.update(id, { gridData, rowCount: gridData.totalRows, lastUpdated: now });
+      await store.patchProject(id, { gridData, rowCount: gridData.totalRows, lastUpdated: now });
     } catch (dbErr) {
       console.error("[KnitStep] Failed to update grid calibration:", dbErr);
     }
   }
 
-  /** Persist the current knitting row for a grid project. */
   function updateGridProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
     if (!proj?.gridData) return;
@@ -343,14 +508,11 @@ export function useProjectManager({
         p.id === id ? { ...p, gridData: newGridData, lastUpdated: now } : p
       )
     );
-    db.projects
-      .update(id, { gridData: newGridData, lastUpdated: now })
+    store
+      .patchProject(id, { gridData: newGridData, lastUpdated: now })
       .catch((err) => console.error("[KnitStep] Failed to update grid progress:", err));
   }
 
-  /**
-   * Save a new crochet chart project (calibrated + AI landmarks).
-   */
   async function saveCrochetProject(crochetData: CrochetData, files: File[], lang: string) {
     const now  = Date.now();
     const d    = new Date(now);
@@ -377,7 +539,7 @@ export function useProjectManager({
     };
 
     try {
-      await db.projects.put(newProject);
+      await store.putProject(newProject);
     } catch (dbErr) {
       console.error("[KnitStep] Failed to save crochet project:", dbErr);
     }
@@ -385,10 +547,6 @@ export function useProjectManager({
     setCurrentProjectId(now.toString());
   }
 
-  /**
-   * Update calibration data for an existing crochet project (recalibration flow).
-   * Preserves everything else — name, id, originalFiles (cover image), progress.
-   */
   async function updateCrochetCalibration(id: string, crochetData: CrochetData) {
     const now = Date.now();
     setProjects((prev) =>
@@ -399,29 +557,27 @@ export function useProjectManager({
       )
     );
     try {
-      await db.projects.update(id, { crochetData, rowCount: crochetData.totalRows, lastUpdated: now });
+      await store.patchProject(id, { crochetData, rowCount: crochetData.totalRows, lastUpdated: now });
     } catch (dbErr) {
       console.error("[KnitStep] Failed to update crochet calibration:", dbErr);
     }
   }
 
-  /** Persist the current row/round for a crochet project. */
   function updateCrochetProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
     if (!proj?.crochetData) return;
-    const now              = Date.now();
-    const newCrochetData   = { ...proj.crochetData, currentRow };
+    const now            = Date.now();
+    const newCrochetData = { ...proj.crochetData, currentRow };
     setProjects((prev) =>
       prev.map((p) =>
         p.id === id ? { ...p, crochetData: newCrochetData, lastUpdated: now } : p
       )
     );
-    db.projects
-      .update(id, { crochetData: newCrochetData, lastUpdated: now })
+    store
+      .patchProject(id, { crochetData: newCrochetData, lastUpdated: now })
       .catch((err) => console.error("[KnitStep] Failed to update crochet progress:", err));
   }
 
-  /** Persist AI pattern-meta for a tracker project after first analysis. */
   function updateTrackerPatternMeta(id: string, patternMeta: PatternMeta) {
     const proj = projects.find((p) => p.id === id);
     if (!proj?.trackerData) return;
@@ -432,12 +588,11 @@ export function useProjectManager({
         p.id === id ? { ...p, trackerData: newTrackerData, lastUpdated: now } : p
       )
     );
-    db.projects
-      .update(id, { trackerData: newTrackerData, lastUpdated: now })
+    store
+      .patchProject(id, { trackerData: newTrackerData, lastUpdated: now })
       .catch((err) => console.error("[KnitStep] Failed to save patternMeta:", err));
   }
 
-  /** Persist the current row for a tracker project. */
   function updateTrackerProgress(id: string, currentRow: number) {
     const proj = projects.find((p) => p.id === id);
     if (!proj?.trackerData) return;
@@ -448,8 +603,8 @@ export function useProjectManager({
         p.id === id ? { ...p, trackerData: newTrackerData, lastUpdated: now } : p
       )
     );
-    db.projects
-      .update(id, { trackerData: newTrackerData, lastUpdated: now })
+    store
+      .patchProject(id, { trackerData: newTrackerData, lastUpdated: now })
       .catch((err) => console.error("[KnitStep] Failed to update tracker progress:", err));
   }
 
@@ -464,12 +619,22 @@ export function useProjectManager({
     hasClickedTarget, setHasClickedTarget,
     currentProjectFileUrlsRef,
     hydrated,
-    // Actions
+    // Auth state
+    user,
+    authLoading,
+    isSyncing,
+    // Auth actions
+    login,
+    signup,
+    loginWithGoogle,
+    logout,
+    // Project actions
     markHydrated,
     loadProjects,
     saveNewProject,
     selectProject,
     handleLoadProject,
+    rehydrateIfNeeded,
     handleDeleteProject,
     handleRenameProject,
     updateGridCalibration,

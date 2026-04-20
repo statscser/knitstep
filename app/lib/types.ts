@@ -49,12 +49,14 @@ export interface PatternMeta {
 
 /** Persisted state for the manual row-tracker flow. */
 export interface TrackerData {
-  imageSrc: string;  // data URL of the chart image
+  imageSrc: string;   // data URL of the chart image (empty string when loaded from cloud before rehydration)
   rect: { tl: { x: number; y: number }; br: { x: number; y: number } };
   rows: number;
   stitches: number;
   currentRow: number;
   patternMeta?: PatternMeta;
+  /** Supabase Storage key for imageSrc — set after first cloud upload. Internal use only. */
+  _imagePath?: string;
 }
 
 export interface Project {
@@ -94,7 +96,7 @@ export interface CrochetLandmark {
 }
 
 export interface CrochetData {
-  imageSrc: string;
+  imageSrc: string;   // data URL (empty string when loaded from cloud before rehydration)
   mode: CrochetMode;
   /** Normalized [0,1] — center point (circular) or start-corner marker (flat). */
   startPoint: { x: number; y: number };
@@ -102,6 +104,8 @@ export interface CrochetData {
   landmarks: CrochetLandmark[];
   currentRow: number;
   totalRows: number;
+  /** Supabase Storage key for imageSrc — set after first cloud upload. Internal use only. */
+  _imagePath?: string;
 }
 
 // ─── Translations dictionary ──────────────────────────────────────────────────

@@ -21,8 +21,12 @@ export interface DbProject {
   availableSizes?: string[];
   type?: "instruction" | "grid" | "tracker" | "crochet";
   gridData?: any;       // serialized GridData (includes currentRow)
-  trackerData?: any;    // serialized TrackerData (includes currentRow)
-  crochetData?: any;    // serialized CrochetData (includes currentRow, landmarks)
+  trackerData?: any;    // serialized TrackerData (includes currentRow, optional _imagePath)
+  crochetData?: any;    // serialized CrochetData (includes currentRow, landmarks, optional _imagePath)
+  /** Auth: null = created anonymously (no login), string = Supabase user UUID */
+  userId?: string | null;
+  /** "local" = created on this device; "synced" = downloaded from cloud cache */
+  origin?: "local" | "synced";
 }
 
 export class KnitStepDatabase extends Dexie {
@@ -34,6 +38,13 @@ export class KnitStepDatabase extends Dexie {
     this.version(2).stores({ projects: 'id, name, lastUpdated' });
     // v3: no schema change — originalFiles now stores StoredFile[] instead of Blob[]
     this.version(3).stores({ projects: 'id, name, lastUpdated' });
+    // v4: add userId + origin for multi-user privacy
+    this.version(4).stores({ projects: 'id, name, lastUpdated, userId' }).upgrade((tx) =>
+      tx.table('projects').toCollection().modify((p) => {
+        if (p.userId === undefined) p.userId = null;
+        if (p.origin  === undefined) p.origin  = "local";
+      })
+    );
   }
 }
 
