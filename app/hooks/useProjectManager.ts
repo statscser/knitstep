@@ -60,6 +60,12 @@ export function useProjectManager({
   // Guard: prevent concurrent syncOnLogin calls (e.g. if SIGNED_IN fires twice)
   const syncInProgressRef = useRef(false);
 
+  // Stash loadProjects args so INITIAL_SESSION can call onProjectRestored
+  const pendingRestoreRef = useRef<{
+    savedProjectId: string | null;
+    onProjectRestored: (project: Project) => void;
+  } | null>(null);
+
   // ── Build the store based on auth state ───────────────────────────────────
   const store = useMemo(
     () => createProjectStore(user, getSupabase()),
@@ -79,10 +85,33 @@ export function useProjectManager({
           await syncOnLogin(nextUser);
         }
 
+        if (event === "INITIAL_SESSION" && nextUser) {
+          // Page reloaded while already logged in — load this user's projects from
+          // local Dexie cache (they were synced during the original login).
+          const rows = await db.projects
+            .orderBy("lastUpdated").reverse()
+            .filter((p) => p.userId === nextUser.id)
+            .toArray();
+          const loaded = rows.map(dbToProject);
+          setProjects(loaded);
+
+          // Restore the active project if page.tsx already stashed the callback
+          const pending = pendingRestoreRef.current;
+          if (pending) {
+            pendingRestoreRef.current = null;
+            const active = pending.savedProjectId
+              ? loaded.find((p) => p.id === pending.savedProjectId)
+              : undefined;
+            if (active) {
+              pending.onProjectRestored(active);
+            }
+          }
+        }
+
         if (event === "SIGNED_OUT") {
           // Remove cloud-cached projects from IndexedDB (keep local-origin ones)
           await db.projects
-            .filter((p) => p.userId === (nextUser === null ? undefined : undefined) && p.origin === "synced")
+            .filter((p) => p.origin === "synced")
             .delete();
           // Reload anonymous projects
           const anonRows = await db.projects
@@ -363,7 +392,14 @@ export function useProjectManager({
       if (activeProject) {
         onProjectRestored(activeProject);
       } else if (savedProjectId) {
-        localStorage.removeItem("knitstep-current-project");
+        // If auth hasn't resolved yet, the user may be logged in and their
+        // projects not yet visible — stash the callback for INITIAL_SESSION
+        // to call once projects are loaded.  Don't erase the saved project ID.
+        if (authLoading) {
+          pendingRestoreRef.current = { savedProjectId, onProjectRestored };
+        } else {
+          localStorage.removeItem("knitstep-current-project");
+        }
       }
     } catch (err) {
       console.error("[KnitStep] Failed to load projects:", err);
