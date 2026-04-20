@@ -67,6 +67,7 @@ export interface Project {
   lastUpdated: number;
   originalFile?: Blob | File;                     // legacy field — migration read only
   originalFiles?: StoredFile[] | (Blob | File)[]; // v2: Blob/File (legacy); v3+: StoredFile[]
+  originalFilePaths?: string[];                   // Supabase Storage paths (cloud-synced projects without local blobs)
   availableSizes: string[];
   selectedSize: string;
   type?: "instruction" | "grid" | "tracker" | "crochet";

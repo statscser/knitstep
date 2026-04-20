@@ -67,10 +67,11 @@ function fromCloudRow(row: Record<string, any>): Project {
     lastUpdated:    row.last_updated,
     selectedSize:   row.selected_size ?? "all",
     availableSizes: row.available_sizes ?? [],
-    gridData:       row.grid_data ?? undefined,
+    gridData:           row.grid_data ?? undefined,
     trackerData,
     crochetData,
-    originalFiles:  undefined, // rehydrated on demand when project is opened
+    originalFiles:      undefined,                            // rehydrated on demand when project is opened
+    originalFilePaths:  row.original_file_paths ?? [],       // Storage paths for gallery thumbnails
   };
 }
 

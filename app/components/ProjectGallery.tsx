@@ -25,6 +25,8 @@ export interface ProjectGalleryProps {
   onLoad: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
+  /** Signed URLs for cloud-synced projects that have no local originalFiles */
+  cloudThumbnailUrls?: Record<string, string>;
 }
 
 export default function ProjectGallery({
@@ -35,6 +37,7 @@ export default function ProjectGallery({
   onLoad,
   onDelete,
   onRename,
+  cloudThumbnailUrls,
 }: ProjectGalleryProps) {
   const t = dict[lang];
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,7 +62,12 @@ export default function ProjectGallery({
         isStoredFile(f) ? f.mimeType === "application/pdf" : (f as Blob).type === "application/pdf"
       );
       const picked = firstImage ?? firstPdf;
-      if (!picked) continue;
+      if (!picked) {
+        // No local file — fall back to cloud signed URL if available
+        const cloudUrl = cloudThumbnailUrls?.[proj.id];
+        if (cloudUrl) urls[proj.id] = { url: cloudUrl, isPdf: false };
+        continue;
+      }
       const isPdf = !firstImage;
       if (isStoredFile(picked)) {
         if (isPdf) {
@@ -82,7 +90,7 @@ export default function ProjectGallery({
     }
     setPreviewUrls(urls);
     return () => blobUrls.forEach(URL.revokeObjectURL);
-  }, [projects]);
+  }, [projects, cloudThumbnailUrls]);
 
   function startRename(id: string, currentName: string) {
     setEditingId(id);

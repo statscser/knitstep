@@ -8,6 +8,8 @@ import {
   type Lang, type Step, type CrochetData,
 } from "./lib/types";
 import { DEFAULT_PROMPT_VERSION, type PromptVersion } from "./lib/prompts";
+import { createClient } from "./lib/supabase/client";
+import { getSignedUrl } from "./lib/stores/imageUtils";
 import { useProjectManager } from "./hooks/useProjectManager";
 import { useAIConversion }   from "./hooks/useAIConversion";
 import ImportSection  from "./components/ImportSection";
@@ -52,6 +54,7 @@ export default function Home() {
   const [highlightedStepId, setHighlightedStepId]   = useState<number | null>(null);
   const [activeMenuStepId, setActiveMenuStepId]     = useState<number | null>(null);
   const [showProjectsModal, setShowProjectsModal]   = useState(false);
+  const [cloudThumbnailUrls, setCloudThumbnailUrls] = useState<Record<string, string>>({});
   const [showAuthModal, setShowAuthModal]           = useState(false);
   const [gridConfidenceModal, setGridConfidenceModal] = useState<{ confidence: number; analysisReport?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded]       = useState(true);
@@ -197,6 +200,62 @@ export default function Home() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pm.projects, pm.currentProjectId]);
+
+  // Generate signed URLs for cloud-synced projects that have no local originalFiles.
+  // Handles three cases:
+  //   1. tracker/crochet: use trackerData._imagePath / crochetData._imagePath
+  //   2. instruction/grid with originalFilePaths cached locally
+  //   3. instruction/grid with no local path cache → query Supabase for original_file_paths
+  useEffect(() => {
+    if (!showProjectsModal || !pm.user) return;
+    const supabase = createClient();
+    const noLocalFiles = pm.projects.filter(
+      (p) => !p.originalFiles || p.originalFiles.length === 0
+    );
+    if (noLocalFiles.length === 0) return;
+
+    async function fetchThumbnails() {
+      const results: Record<string, string> = {};
+
+      // Pass 1: use _imagePath already in the local record (tracker / crochet)
+      const stillNeed: string[] = [];
+      for (const p of noLocalFiles) {
+        const imgPath = p.trackerData?._imagePath ?? (p.crochetData as any)?._imagePath;
+        if (imgPath) {
+          const url = await getSignedUrl(supabase, imgPath);
+          if (url) { results[p.id] = url; continue; }
+        }
+        if (p.originalFilePaths?.length) {
+          const url = await getSignedUrl(supabase, p.originalFilePaths[0]);
+          if (url) { results[p.id] = url; continue; }
+        }
+        stillNeed.push(p.id);
+      }
+
+      // Pass 2: query Supabase for original_file_paths not yet in local Dexie cache
+      if (stillNeed.length > 0) {
+        const { data } = await supabase
+          .from("projects")
+          .select("id, original_file_paths")
+          .in("id", stillNeed)
+          .eq("user_id", pm.user!.id);
+        for (const row of data ?? []) {
+          const paths = (row.original_file_paths ?? []) as string[];
+          if (paths.length) {
+            const url = await getSignedUrl(supabase, paths[0]);
+            if (url) results[row.id] = url;
+          }
+        }
+      }
+
+      if (Object.keys(results).length > 0) {
+        setCloudThumbnailUrls((prev) => ({ ...prev, ...results }));
+      }
+    }
+
+    fetchThumbnails();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProjectsModal, pm.projects, pm.user]);
 
   // Auto-scroll to RowTracker whenever it first appears (calibration complete or project load)
   useEffect(() => {
@@ -1267,6 +1326,7 @@ export default function Home() {
             onLoad={handleLoadProject}
             onDelete={handleDeleteProject}
             onRename={pm.handleRenameProject}
+            cloudThumbnailUrls={cloudThumbnailUrls}
           />
         )}
       </AnimatePresence>
