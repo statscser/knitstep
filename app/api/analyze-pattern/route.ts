@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const MODELS_TO_TRY = [
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-] as const;
+import { GEMINI_MODELS } from "../../lib/models";
 
 function buildPrompt(rows: number, stitches: number): string {
   return `You are a knitting chart analyzer. This chart has approximately ${rows} rows × ${stitches} stitches.
@@ -36,7 +32,7 @@ export async function POST(req: NextRequest) {
   const prompt = buildPrompt(rows ?? 1, stitches ?? 1);
   const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-  for (const modelName of MODELS_TO_TRY) {
+  for (const modelName of GEMINI_MODELS) {
     const model = genAI.getGenerativeModel({ model: modelName });
     try {
       console.log(`[AnalyzePattern] model=${modelName}`);

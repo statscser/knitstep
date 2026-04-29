@@ -1,14 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PROMPT_GALLERY, DEFAULT_PROMPT_VERSION, type PromptVersion } from "./prompts";
 import type { GridData } from "./types";
-
-// ─── Gemini model fallback list ───────────────────────────────────────────────
-const MODELS_TO_TRY = [
-  "gemini-2.5-flash",
-  "gemini-3-flash-preview",
-  "gemini-3.1-flash-lite-preview",
-  "gemini-2.5-flash-lite",
-] as const;
+import { GEMINI_MODELS } from "./models";
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -46,8 +39,8 @@ export async function parseGridFromImages(
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
   let lastError: any = null;
 
-  for (let i = 0; i < MODELS_TO_TRY.length; i++) {
-    const modelName = MODELS_TO_TRY[i];
+  for (let i = 0; i < GEMINI_MODELS.length; i++) {
+    const modelName = GEMINI_MODELS[i];
     const model     = genAI.getGenerativeModel({ model: modelName });
 
     // Up to 2 attempts per model: first clean, second with error context

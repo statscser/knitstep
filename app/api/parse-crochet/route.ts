@@ -5,13 +5,7 @@ import type {
   CrochetMode,
   CrochetStartCorner,
 } from "../../lib/types";
-
-const MODELS_TO_TRY = [
-  "gemini-3.1-pro-preview",
-  "gemini-2.5-pro",
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-] as const;
+import { GEMINI_PRO_MODELS } from "../../lib/models";
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -164,7 +158,7 @@ export async function POST(req: NextRequest) {
 
   let lastError: unknown = null;
 
-  for (const modelName of MODELS_TO_TRY) {
+  for (const modelName of GEMINI_PRO_MODELS) {
     const model = genAI.getGenerativeModel({ model: modelName });
     try {
       console.log(`[parse-crochet] Trying model: ${modelName}`);

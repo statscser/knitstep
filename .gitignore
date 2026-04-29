@@ -23,6 +23,7 @@ test-api.mjs
 
 # misc
 .DS_Store
+.continue/
 *.pem
 
 # debug

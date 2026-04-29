@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { parseInput, ACCESS_CODE, type Lang, type Step, type GridData } from "../lib/types";
+import { parseInput, type Lang, type Step, type GridData } from "../lib/types";
 import { MOCK_GRID_PROJECT_DATA } from "../lib/mockGridData";
 
 // set true for mock and false for real API
@@ -121,7 +121,7 @@ export function useAIConversion({
           res = await fetch("/api/parse-video", {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ videoUrl: videoUrl.trim(), language: lang, accessCode: ACCESS_CODE }),
+            body:    JSON.stringify({ videoUrl: videoUrl.trim(), language: lang }),
             signal:  controller.signal,
           });
         } else {
@@ -131,11 +131,10 @@ export function useAIConversion({
                   text: "",
                   language: lang,
                   images: uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType })),
-                  accessCode: ACCESS_CODE,
                   isGridMode,
                   promptVersion,
                 }
-              : { text: inputText, language: lang, accessCode: ACCESS_CODE };
+              : { text: inputText, language: lang };
           res = await fetch("/api/parse", {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
