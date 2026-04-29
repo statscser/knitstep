@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { GridData } from "../../lib/types";
-
-// ─── Model fallback list ──────────────────────────────────────────────────────
-const MODELS_TO_TRY = [
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-] as const;
+import { GEMINI_MODELS } from "../../lib/models";
 
 // ─── Schema validation ────────────────────────────────────────────────────────
 function validateGridData(obj: unknown): obj is GridData {
@@ -56,7 +51,6 @@ export async function POST(req: NextRequest) {
     rowImages: string[];          // base64 PNG, index 0 = Row 1 = bottom-most strip
     rows: number;
     stitches: number;
-    accessCode?: string;
   };
 
   try {
@@ -79,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   let lastError: Error | null = null;
 
-  for (const modelName of MODELS_TO_TRY) {
+  for (const modelName of GEMINI_MODELS) {
     const model = genAI.getGenerativeModel({ model: modelName });
 
     for (let attempt = 0; attempt < 2; attempt++) {

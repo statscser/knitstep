@@ -4,12 +4,13 @@ import { useState, useEffect, useRef, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   dict, renderStepText, compressImage,
-  ACCESS_CODE, MAX_IMAGES,
+  MAX_IMAGES,
   type Lang, type Step, type CrochetData,
 } from "./lib/types";
 import { DEFAULT_PROMPT_VERSION, type PromptVersion } from "./lib/prompts";
 import { createClient } from "./lib/supabase/client";
 import { getSignedUrl } from "./lib/stores/imageUtils";
+import { checkAccessCode } from "./actions";
 import { useProjectManager } from "./hooks/useProjectManager";
 import { useAIConversion }   from "./hooks/useAIConversion";
 import ImportSection  from "./components/ImportSection";
@@ -451,8 +452,9 @@ export default function Home() {
     }
   }
 
-  function handleUnlock() {
-    if (codeInput.trim().toUpperCase() === ACCESS_CODE) {
+  async function handleUnlock() {
+    const valid = await checkAccessCode(codeInput.trim().toUpperCase());
+    if (valid) {
       localStorage.setItem("knitstep_access_granted", "1");
       setIsUnlocked(true);
     } else {

@@ -5,8 +5,6 @@ export const maxDuration = 60;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const MODEL_NAME = "gemini-3-flash-preview";
-const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
-
 // ── VIDEO_TO_TEXT_PROMPT ──────────────────────────────────────────────────────
 // Role: crochet/knitting expert video transcriber.
 // Goal: Listen to audio + OCR text overlays → output clean raw pattern text.
@@ -39,11 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { videoUrl, language, accessCode } = await request.json();
-
-    if (accessCode !== VALID_CODE) {
-      return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    const { videoUrl, language } = await request.json();
 
     if (!videoUrl?.trim()) {
       return NextResponse.json({ error: "NO_VIDEO_INPUT" }, { status: 400 });
@@ -70,7 +64,7 @@ export async function POST(request: NextRequest) {
     const parseRes = await fetch(`${protocol}://${host}/api/parse`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ text: rawText, language, accessCode: VALID_CODE }),
+      body:    JSON.stringify({ text: rawText, language }),
     });
     const parseData = await parseRes.json();
     return NextResponse.json(parseData, { status: parseRes.status });

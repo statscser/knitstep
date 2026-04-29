@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { parseGridFromImages } from "../../lib/GridAIService";
+import { GEMINI_MODELS } from "../../lib/models";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
-const MODELS_TO_TRY = [
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-] as const;
-
-let inFlight = false;
 
 type ParsedStep = {
   text: string;
@@ -299,10 +293,10 @@ async function runGemini(
   console.time("AI_CONVERSION");
   let lastError: any = null;
 
-  for (let i = 0; i < MODELS_TO_TRY.length; i++) {
-    const modelName = MODELS_TO_TRY[i];
+  for (let i = 0; i < GEMINI_MODELS.length; i++) {
+    const modelName = GEMINI_MODELS[i];
     console.log(
-      `[AI] Attempt ${i + 1}/${MODELS_TO_TRY.length} — model: ${modelName}`,
+      `[AI] Attempt ${i + 1}/${GEMINI_MODELS.length} — model: ${modelName}`,
     );
 
     const model = genAI.getGenerativeModel({ model: modelName });
@@ -375,27 +369,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "API_KEY_MISSING" }, { status: 500 });
   }
 
-  if (inFlight) {
-    return NextResponse.json({ error: "UNKNOWN_ERROR" }, { status: 429 });
-  }
-  inFlight = true;
-
   try {
     const body = await request.json();
-    const { text, language, images, accessCode, isGridMode, promptVersion } =
+    const { text, language, images, isGridMode, promptVersion } =
       body as {
         text: string;
         language: "zh" | "en";
         images?: { base64: string; mimeType: string }[];
-        accessCode?: string;
         isGridMode?: boolean;
         promptVersion?: string;
       };
-
-    const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
-    if (accessCode !== VALID_CODE) {
-      return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-    }
 
     if (isGridMode) {
       if (!images || images.length === 0) {
@@ -412,7 +395,5 @@ export async function POST(request: NextRequest) {
     const status =
       msg === "QUOTA_EXCEEDED" ? 429 : msg === "FILE_TOO_LARGE" ? 413 : 500;
     return NextResponse.json({ error: msg }, { status });
-  } finally {
-    inFlight = false;
   }
 }

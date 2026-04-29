@@ -1,19 +1,17 @@
 'use server'
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { GEMINI_MODELS } from "./lib/models"
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 
-// Prioritized model list — first available/non-rate-limited model wins
-const MODELS_TO_TRY = [
-  'gemini-2.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-2.5-flash-lite',
-] as const;
-
-// Deduplication guard — prevents simultaneous calls in the same server process
-let inFlight = false;
+// ── checkAccessCode ───────────────────────────────────────────────────────────
+// Validates a user-supplied code against the server-side env variable.
+// Called by the client's handleUnlock — the code never lives in the client bundle.
+export async function checkAccessCode(code: string): Promise<boolean> {
+  const VALID_CODE = process.env.ACCESS_CODE ?? "KNITSTEPBYSTEP";
+  return code === VALID_CODE;
+}
 
 type FlatStep = { text: string; original?: string; sizeMap?: Record<string, string> };
 
@@ -60,9 +58,6 @@ export async function parsePatternAction(
   imageMimeType?: string,
 ) {
   if (!process.env.GEMINI_API_KEY) throw new Error('API_KEY_MISSING');
-
-  if (inFlight) throw new Error("UNKNOWN_ERROR");
-  inFlight = true;
 
   console.time("AI_CONVERSION");
 
@@ -132,9 +127,9 @@ export async function parsePatternAction(
 
   let lastError: any = null;
 
-  for (let i = 0; i < MODELS_TO_TRY.length; i++) {
-    const modelName = MODELS_TO_TRY[i];
-    console.log(`[AI] Attempt ${i + 1}/${MODELS_TO_TRY.length} — model: ${modelName}`);
+  for (let i = 0; i < GEMINI_MODELS.length; i++) {
+    const modelName = GEMINI_MODELS[i];
+    console.log(`[AI] Attempt ${i + 1}/${GEMINI_MODELS.length} — model: ${modelName}`);
 
     const model = genAI.getGenerativeModel({ model: modelName });
 
@@ -150,7 +145,6 @@ export async function parsePatternAction(
 
       const steps = flattenSteps(parsed.steps ?? []);
 
-      inFlight = false;
       console.timeEnd("AI_CONVERSION");
 
       return { stepsJson: JSON.stringify(steps) };
@@ -170,7 +164,6 @@ export async function parsePatternAction(
         msgLower.includes('exceeds the limit') ||
         msgLower.includes('request entity too large');
       if (isPayloadTooLarge) {
-        inFlight = false;
         console.timeEnd("AI_CONVERSION");
         throw new Error("FILE_TOO_LARGE");
       }
@@ -193,7 +186,6 @@ export async function parsePatternAction(
   }
 
   // All models exhausted
-  inFlight = false;
   console.timeEnd("AI_CONVERSION");
 
   const lastMsg = lastError?.message ?? 'All models failed';

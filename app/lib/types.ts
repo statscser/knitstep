@@ -362,4 +362,3 @@ export const CARD_STYLE: React.CSSProperties = {
 
 export const RADIUS = "2rem";
 
-export const ACCESS_CODE = "KNITSTEPBYSTEP";
