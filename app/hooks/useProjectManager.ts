@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "../lib/supabase/client";
+import { ENABLE_AUTH } from "../config";
 import { db } from "../lib/db";
 import type { DbProject } from "../lib/db";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../lib/types";
 import type { StoredFile } from "../lib/db";
 import { createProjectStore } from "../lib/stores/createProjectStore";
+import { DexieProjectStore } from "../lib/stores/DexieProjectStore";
 import { SupabaseProjectStore } from "../lib/stores/SupabaseProjectStore";
 import { planSync, resolveConflict } from "../lib/stores/syncUtils";
 import { dbToProject } from "../lib/projectStore";
@@ -74,14 +76,22 @@ export function useProjectManager({
   } | null>(null);
 
   // ── Build the store based on auth state ───────────────────────────────────
+  // While ENABLE_AUTH is off, `user` never becomes non-null, so always use the
+  // local Dexie store and never touch Supabase (avoids "Failed to fetch" noise
+  // when the Supabase project is suspended).
   const store = useMemo(
-    () => createProjectStore(user, getSupabase()),
+    () => (ENABLE_AUTH ? createProjectStore(user, getSupabase()) : new DexieProjectStore()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user?.id],
   );
 
   // ── Auth: subscribe to Supabase auth state changes ───────────────────────
   useEffect(() => {
+    if (!ENABLE_AUTH) {
+      setAuthLoading(false);
+      return;
+    }
+
     const { data: { subscription } } = getSupabase().auth.onAuthStateChange(
       async (event, session) => {
         const nextUser = session?.user ?? null;
@@ -156,7 +166,7 @@ export function useProjectManager({
 
   // ── Re-sync when tab becomes visible (picks up changes from other devices) ──
   useEffect(() => {
-    if (!user) return;
+    if (!ENABLE_AUTH || !user) return;
     function onVisibilityChange() {
       if (document.visibilityState === "visible") {
         syncOnLogin(user!);  // syncInProgressRef guard prevents double-runs
@@ -363,16 +373,19 @@ export function useProjectManager({
   // ── Auth actions ───────────────────────────────────────────────────────────
 
   async function login(email: string, password: string): Promise<void> {
+    if (!ENABLE_AUTH) throw new Error("Login is currently unavailable.");
     const { error } = await getSupabase().auth.signInWithPassword({ email, password });
     if (error) throw error;
   }
 
   async function signup(email: string, password: string): Promise<void> {
+    if (!ENABLE_AUTH) throw new Error("Login is currently unavailable.");
     const { error } = await getSupabase().auth.signUp({ email, password });
     if (error) throw error;
   }
 
   async function loginWithGoogle(): Promise<void> {
+    if (!ENABLE_AUTH) throw new Error("Login is currently unavailable.");
     const { error } = await getSupabase().auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -383,6 +396,7 @@ export function useProjectManager({
   }
 
   async function logout(): Promise<void> {
+    if (!ENABLE_AUTH) return;
     const prevUserId = user?.id;
     await getSupabase().auth.signOut();
     // Clean up cloud-synced cache for this user

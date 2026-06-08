@@ -8,6 +8,7 @@ import {
   type Lang, type Step, type CrochetData,
 } from "./lib/types";
 import { DEFAULT_PROMPT_VERSION, type PromptVersion } from "./lib/prompts";
+import { ENABLE_AUTH } from "./config";
 import { createClient } from "./lib/supabase/client";
 import { getSignedUrl } from "./lib/stores/imageUtils";
 import { checkAccessCode } from "./actions";
@@ -208,7 +209,7 @@ export default function Home() {
   //   2. instruction/grid with originalFilePaths cached locally
   //   3. instruction/grid with no local path cache → query Supabase for original_file_paths
   useEffect(() => {
-    if (!showProjectsModal || !pm.user) return;
+    if (!ENABLE_AUTH || !showProjectsModal || !pm.user) return;
     const supabase = createClient();
     const noLocalFiles = pm.projects.filter(
       (p) => !p.originalFiles || p.originalFiles.length === 0
@@ -754,19 +755,21 @@ export default function Home() {
     >
       {/* ── Top-right: AuthButton + Language toggle ── */}
       <div className="no-print absolute top-5 right-5 z-10 flex items-center gap-2">
-        <AuthButton
-          user={pm.user}
-          authLoading={pm.authLoading}
-          isSyncing={pm.isSyncing}
-          lang={lang}
-          onOpenModal={() => setShowAuthModal(true)}
-          onLogout={pm.logout}
-        />
+        {ENABLE_AUTH && (
+          <AuthButton
+            user={pm.user}
+            authLoading={pm.authLoading}
+            isSyncing={pm.isSyncing}
+            lang={lang}
+            onOpenModal={() => setShowAuthModal(true)}
+            onLogout={pm.logout}
+          />
+        )}
         <LangToggle lang={lang} onToggle={toggleLang} />
       </div>
 
       {/* ── Auth modal ── */}
-      {showAuthModal && (
+      {ENABLE_AUTH && showAuthModal && (
         <AuthModal
           lang={lang}
           onLogin={pm.login}
