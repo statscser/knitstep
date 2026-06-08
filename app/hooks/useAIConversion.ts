@@ -24,6 +24,7 @@ interface UseAIConversionOptions {
   aiSubTab: "photo" | "video";
   inputText: string;
   uploadedImages: UploadedImage[];
+  pdfText: string;
   videoUrl: string;
   isGridMode: boolean;
   promptVersion?: string;
@@ -41,6 +42,7 @@ export function useAIConversion({
   aiSubTab,
   inputText,
   uploadedImages,
+  pdfText,
   videoUrl,
   isGridMode,
   promptVersion,
@@ -126,7 +128,11 @@ export function useAIConversion({
           });
         } else {
           const body =
-            activeTab === "ai" && uploadedImages.length > 0
+            activeTab === "ai" && pdfText
+              // PDF with text layer: send extracted text (same quality as native
+              // PDF parsing, tiny payload, correct content filtering)
+              ? { text: pdfText, language: lang }
+              : activeTab === "ai" && uploadedImages.length > 0
               ? {
                   text: "",
                   language: lang,

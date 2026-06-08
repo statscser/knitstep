@@ -18,6 +18,8 @@ export interface ImportSectionProps {
   setInputText: (s: string) => void;
   uploadedImages: { base64: string; mimeType: string; previewUrl: string }[];
   setUploadedImages: React.Dispatch<React.SetStateAction<{ base64: string; mimeType: string; previewUrl: string }[]>>;
+  pdfUpload: boolean;
+  setPdfUpload: (v: boolean) => void;
   isCompressing: boolean;
   isLoading: boolean;
   errorMsg: string | null;
@@ -62,6 +64,8 @@ export default function ImportSection({
   setInputText,
   uploadedImages,
   setUploadedImages,
+  pdfUpload,
+  setPdfUpload,
   isCompressing,
   isLoading,
   errorMsg,
@@ -361,6 +365,7 @@ export default function ImportSection({
                         setIsGridMode(grid);
                         setIsCrochetMode(crochet);
                         setUploadedImages([]);
+                        setPdfUpload(false);
                         latestFilesRef.current = [];
                         setVideoUrl("");
                         setErrorMsg(null);
@@ -425,7 +430,7 @@ export default function ImportSection({
                   return (
                     <button
                       key={sub}
-                      onClick={() => { setAiSubTab(sub); setUploadedImages([]); latestFilesRef.current = []; setVideoUrl(""); setErrorMsg(null); }}
+                      onClick={() => { setAiSubTab(sub); setUploadedImages([]); setPdfUpload(false); latestFilesRef.current = []; setVideoUrl(""); setErrorMsg(null); }}
                       className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
                       style={{
                         background: active ? "var(--morandi-sage)" : "var(--bg-card)",
@@ -515,7 +520,7 @@ export default function ImportSection({
                       {t.compressing}
                     </p>
                   </motion.div>
-                ) : uploadedImages.length > 0 && uploadedImages[0].mimeType === "application/pdf" ? (
+                ) : uploadedImages.length > 0 && pdfUpload ? (
                   /* ── PDF preview ── */
                   <motion.div
                     key="pdf-preview"
@@ -533,9 +538,12 @@ export default function ImportSection({
                       <p className="text-sm font-medium" style={{ color: "var(--text-main)" }}>
                         {t.uploadPdfReady}
                       </p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {uploadedImages.length} {lang === "zh" ? "页已转换" : `page${uploadedImages.length !== 1 ? "s" : ""} converted`}
+                      </p>
                     </div>
                     <button
-                      onClick={() => { setUploadedImages([]); latestFilesRef.current = []; }}
+                      onClick={() => { setUploadedImages([]); setPdfUpload(false); latestFilesRef.current = []; }}
                       className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold"
                       style={{ background: "rgba(0,0,0,0.45)", color: "#fff", border: "none", cursor: "pointer", lineHeight: 0 }}
                     >
@@ -559,7 +567,7 @@ export default function ImportSection({
                         </span>
                       )}
                       <button
-                        onClick={() => { setUploadedImages([]); latestFilesRef.current = []; }}
+                        onClick={() => { setUploadedImages([]); setPdfUpload(false); latestFilesRef.current = []; }}
                         className="text-xs font-medium"
                         style={{ color: "var(--morandi-blush)", background: "none", border: "none", cursor: "pointer" }}
                       >

@@ -9,6 +9,7 @@ import {
 } from "./lib/types";
 import { DEFAULT_PROMPT_VERSION, type PromptVersion } from "./lib/prompts";
 import { ENABLE_AUTH } from "./config";
+import { pdfToImages, pdfToText, MAX_PDF_PAGES } from "./lib/pdfUtils";
 import { createClient } from "./lib/supabase/client";
 import { getSignedUrl } from "./lib/stores/imageUtils";
 import { checkAccessCode } from "./actions";
@@ -43,6 +44,8 @@ export default function Home() {
     base64: string; mimeType: string; previewUrl: string;
   }[]>([]);
   const [isCompressing, setIsCompressing] = useState(false);
+  const [pdfUpload, setPdfUpload]         = useState(false);
+  const [pdfText, setPdfText]             = useState("");
   const [tipVisible, setTipVisible]       = useState(true);
   const [mounted, setMounted]             = useState(false);
   const [isEditMode, setIsEditMode]       = useState(false);
@@ -90,6 +93,7 @@ export default function Home() {
     aiSubTab,
     inputText,
     uploadedImages,
+    pdfText,
     videoUrl,
     isGridMode,
     promptVersion,
@@ -117,6 +121,8 @@ export default function Home() {
       setIsInputExpanded(false);
       // Clear upload state so the input area is a clean slate for the next project
       setUploadedImages([]);
+      setPdfUpload(false);
+      setPdfText("");
       setVideoUrl("");
       setInputText("");
       latestFilesRef.current = [];
@@ -427,16 +433,32 @@ export default function Home() {
         setIsCompressing(false);
       }
     } else {
-      // PDF — replace entire list (single-file)
+      // PDF — extract text layer first (fast, same quality as native PDF parsing).
+      // Fall back to image rasterization only for scanned (image-only) PDFs.
       latestFilesRef.current = [file];
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        const [header, base64] = dataUrl.split(",");
-        const mimeType = header.split(":")[1].split(";")[0];
-        setUploadedImages([{ base64, mimeType, previewUrl: dataUrl }]);
-      };
-      reader.readAsDataURL(file);
+      setIsCompressing(true);
+      try {
+        const { text, numPages } = await pdfToText(file);
+        if (text.length > 200) {
+          // Text-layer PDF: store extracted text for the API call; use dummy
+          // placeholder images only so the UI can show the page count and
+          // convert button (the previewUrl is never rendered in PDF preview mode).
+          setPdfText(text);
+          const dummies = Array.from({ length: Math.min(numPages, MAX_PDF_PAGES) }, () => ({
+            base64: "", mimeType: "image/jpeg", previewUrl: "",
+          }));
+          setUploadedImages(dummies);
+        } else {
+          // Scanned PDF: fall back to full rasterization
+          const pages = await pdfToImages(file);
+          setUploadedImages(pages);
+        }
+        setPdfUpload(true);
+      } catch {
+        ai.setError(t.errorFileTooLarge);
+      } finally {
+        setIsCompressing(false);
+      }
     }
   }
 
@@ -484,6 +506,8 @@ export default function Home() {
     const filesToSave = latestFilesRef.current.slice(0, 1);
     // Clear input so the upload area is blank next time the user expands it
     setUploadedImages([]);
+    setPdfUpload(false);
+    setPdfText("");
     latestFilesRef.current = [];
     // Clear any stale checklist state so knitstep-data doesn't restore a ghost
     // checklist on the next page refresh when this crochet project is active
@@ -870,6 +894,8 @@ export default function Home() {
         setInputText={setInputText}
         uploadedImages={uploadedImages}
         setUploadedImages={setUploadedImages}
+        pdfUpload={pdfUpload}
+        setPdfUpload={setPdfUpload}
         isCompressing={isCompressing}
         isLoading={ai.isLoading}
         errorMsg={ai.error}
