@@ -13,6 +13,18 @@ const nextConfig = {
       bodySizeLimit: '10mb',
     },
   },
+  async headers() {
+    return [
+      {
+        source: "/pdf.worker.min.mjs",
+        headers: [{ key: "Content-Type", value: "application/javascript; charset=utf-8" }],
+      },
+      {
+        source: "/pdf.worker.min.js",
+        headers: [{ key: "Content-Type", value: "application/javascript; charset=utf-8" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

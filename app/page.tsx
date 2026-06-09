@@ -458,8 +458,11 @@ export default function Home() {
           setUploadedImages(pages);
         }
         setPdfUpload(true);
-      } catch {
-        ai.setError(t.errorFileTooLarge);
+      } catch (err) {
+        console.error("[PDF upload]", err);
+        ai.setError(lang === "zh"
+          ? "PDF 处理失败，请换一个 PDF 试试"
+          : "PDF processing failed. Please try a different file.");
       } finally {
         setIsCompressing(false);
       }
