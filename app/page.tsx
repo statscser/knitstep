@@ -383,11 +383,15 @@ export default function Home() {
   async function handleFileUpload(file: File, currentCount?: number) {
     const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
     const MAX_FILE_BYTES  = 10 * 1024 * 1024;
-    const limit = file.type.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+    // On mobile (iOS share sheet, iCloud Drive, WeChat, etc.), PDFs often arrive
+    // with file.type = "image/heic" or "image/jpeg" instead of "application/pdf".
+    // The filename extension is the reliable signal on all platforms.
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const limit = isPdf ? MAX_FILE_BYTES : MAX_IMAGE_BYTES;
     if (file.size > limit) { ai.setError(t.errorFileTooLarge); return; }
     ai.setError(null);
 
-    if (file.type.startsWith("image/")) {
+    if (!isPdf && file.type.startsWith("image/")) {
       latestFilesRef.current = [...latestFilesRef.current, file];
       if ((currentCount ?? uploadedImages.length) >= MAX_IMAGES) {
         ai.setError(t.errorMaxImages);
