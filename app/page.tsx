@@ -442,7 +442,17 @@ export default function Home() {
       latestFilesRef.current = [file];
       setIsCompressing(true);
       try {
-        const { text, numPages } = await pdfToText(file);
+        let text = "";
+        let numPages = 0;
+        try {
+          const result = await pdfToText(file);
+          text = result.text;
+          numPages = result.numPages;
+        } catch (textErr) {
+          console.warn("[PDF upload] Text extraction failed, will try full rasterization", textErr);
+          // Continue to rasterization fallback
+        }
+
         if (text.length > 200) {
           // Text-layer PDF: store extracted text for the API call; use dummy
           // placeholder images only so the UI can show the page count and
@@ -453,16 +463,20 @@ export default function Home() {
           }));
           setUploadedImages(dummies);
         } else {
-          // Scanned PDF: fall back to full rasterization
+          // Scanned PDF or text extraction failed: fall back to full rasterization
           const pages = await pdfToImages(file);
+          if (pages.length === 0) {
+            throw new Error("No pages could be rasterized from PDF");
+          }
           setUploadedImages(pages);
         }
         setPdfUpload(true);
       } catch (err) {
-        console.error("[PDF upload]", err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("[PDF upload] Error:", errMsg, err);
         ai.setError(lang === "zh"
-          ? "PDF 处理失败，请换一个 PDF 试试"
-          : "PDF processing failed. Please try a different file.");
+          ? `PDF 处理失败：${errMsg}，请换一个 PDF 试试`
+          : `PDF processing failed: ${errMsg}. Please try a different file.`);
       } finally {
         setIsCompressing(false);
       }

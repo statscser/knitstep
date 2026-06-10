@@ -21,10 +21,18 @@ async function getLib() {
   }
   if (!classicWorker && typeof Worker !== "undefined") {
     try {
-      classicWorker = new Worker("/pdf.worker.min.js");
-    } catch {
+      classicWorker = new Worker("/pdf.worker.min.js", { type: "classic" });
+    } catch (workerErr) {
+      console.warn("[PDF] Failed to load classic worker, will use fallback:", workerErr);
       // Some environments (headless, SSR guard) don't support Worker; ok — pdfjs
       // will fall back to its own fake-worker path via workerSrc.
+      // Try fallback worker (module version)
+      try {
+        classicWorker = new Worker("/pdf.worker.min.mjs", { type: "module" });
+      } catch (modErr) {
+        console.warn("[PDF] Failed to load module worker too:", modErr);
+        // Both failed - pdfjs will use inline fake worker
+      }
     }
   }
   return pdfjsLib;
@@ -39,15 +47,20 @@ async function openPdf(arrayBuffer: ArrayBuffer) {
   // Set workerPort so pdfjs uses our classic Worker (bypasses module-worker path).
   // Reset immediately after getDocument() resolves — pdfjs has already captured
   // the port in its internal PDFWorker instance; the global is only read once.
-  if (classicWorker) {
+  const hadWorkerPort = !!lib.GlobalWorkerOptions.workerPort;
+  if (classicWorker && !hadWorkerPort) {
     lib.GlobalWorkerOptions.workerPort = classicWorker;
   }
   try {
     const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
-    lib.GlobalWorkerOptions.workerPort = null;
+    if (!hadWorkerPort) {
+      lib.GlobalWorkerOptions.workerPort = null;
+    }
     return pdf;
   } catch (err) {
-    lib.GlobalWorkerOptions.workerPort = null;
+    if (!hadWorkerPort) {
+      lib.GlobalWorkerOptions.workerPort = null;
+    }
     throw err;
   }
 }
@@ -57,7 +70,28 @@ async function openPdf(arrayBuffer: ArrayBuffer) {
  * Returns { text: "", numPages } for scanned (image-only) PDFs.
  */
 export async function pdfToText(file: File): Promise<{ text: string; numPages: number }> {
-  const arrayBuffer = await file.arrayBuffer();
+  let arrayBuffer: ArrayBuffer;
+
+  // Handle arrayBuffer() API compatibility on mobile
+  try {
+    arrayBuffer = await file.arrayBuffer();
+  } catch {
+    // Fallback for older browsers/environments
+    arrayBuffer = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result;
+        if (result instanceof ArrayBuffer) {
+          resolve(result);
+        } else {
+          reject(new Error("FileReader failed to produce ArrayBuffer"));
+        }
+      };
+      reader.onerror = () => reject(new Error("FileReader error"));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
   const pdf = await openPdf(arrayBuffer);
   try {
     const numPages = pdf.numPages;
@@ -74,8 +108,6 @@ export async function pdfToText(file: File): Promise<{ text: string; numPages: n
     }
     return { text: text.trim(), numPages };
   } finally {
-    // Always destroy — frees the workerPort entry so the next call can reuse
-    // the same classicWorker instance.
     await pdf.loadingTask.destroy();
   }
 }
@@ -83,7 +115,25 @@ export async function pdfToText(file: File): Promise<{ text: string; numPages: n
 export async function pdfToImages(
   file: File,
 ): Promise<{ base64: string; mimeType: string; previewUrl: string }[]> {
-  const arrayBuffer = await file.arrayBuffer();
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await file.arrayBuffer();
+  } catch {
+    arrayBuffer = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result;
+        if (result instanceof ArrayBuffer) {
+          resolve(result);
+        } else {
+          reject(new Error("FileReader failed to produce ArrayBuffer"));
+        }
+      };
+      reader.onerror = () => reject(new Error("FileReader error"));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
   const pdf = await openPdf(arrayBuffer);
   const numPages = Math.min(pdf.numPages, MAX_PDF_PAGES);
   const results: { base64: string; mimeType: string; previewUrl: string }[] = [];
@@ -102,27 +152,71 @@ export async function pdfToImages(
       canvas.width  = Math.round(viewport.width);
       canvas.height = Math.round(viewport.height);
       const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas unavailable");
+      if (!ctx) throw new Error("Canvas context unavailable");
 
       await page.render({ canvasContext: ctx as any, viewport, canvas }).promise;
 
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) { reject(new Error("toBlob failed")); return; }
-            const reader = new FileReader();
-            reader.onload  = (e) => resolve(e.target!.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          },
-          "image/jpeg",
-          JPEG_QUALITY,
-        );
-      });
+      // Use toDataURL as primary method (more compatible on mobile)
+      let dataUrl: string | null = null;
+      try {
+        const url = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+        // Validate that toDataURL actually produced a data URL
+        if (url && url.startsWith("data:")) {
+          dataUrl = url;
+        }
+      } catch (err) {
+        console.warn(`[PDF] Page ${pageNum} toDataURL failed:`, err);
+      }
+
+      // Fallback to toBlob with timeout if toDataURL fails or produces invalid result
+      if (!dataUrl) {
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error(`Page ${pageNum}: toBlob timeout after 10s`)),
+            10000,
+          );
+
+          canvas.toBlob(
+            (blob) => {
+              clearTimeout(timeout);
+              if (!blob) {
+                reject(new Error(`Page ${pageNum}: toBlob returned null`));
+                return;
+              }
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                clearTimeout(timeout);
+                try {
+                  const result = e.target?.result;
+                  if (typeof result === "string" && result.startsWith("data:")) {
+                    resolve(result);
+                  } else {
+                    reject(new Error(`Page ${pageNum}: FileReader produced invalid result`));
+                  }
+                } catch (err) {
+                  reject(err);
+                }
+              };
+              reader.onerror = () => {
+                clearTimeout(timeout);
+                reject(new Error(`Page ${pageNum}: FileReader error`));
+              };
+              reader.readAsDataURL(blob);
+            },
+            "image/jpeg",
+            JPEG_QUALITY,
+          );
+        });
+      }
+
+      const base64 = dataUrl.split(",")[1];
+      if (!base64) {
+        throw new Error(`Page ${pageNum}: Failed to extract base64 from data URL`);
+      }
 
       results.push({
-        base64:     dataUrl.split(",")[1],
-        mimeType:   "image/jpeg",
+        base64,
+        mimeType: "image/jpeg",
         previewUrl: dataUrl,
       });
     }

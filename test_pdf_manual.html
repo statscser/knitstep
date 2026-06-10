@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Upload Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <h1>PDF Upload Test</h1>
+    <input type="file" id="pdf-input" accept=".pdf" />
+    <button onclick="testPDFUpload()">Test Upload</button>
+    <div id="result"></div>
+
+    <script>
+        const resultDiv = document.getElementById('result');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        async function testPDFUpload() {
+            const fileInput = document.getElementById('pdf-input');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                resultDiv.innerHTML = '<p style="color: red;">❌ No file selected</p>';
+                return;
+            }
+
+            try {
+                resultDiv.innerHTML = '<p>🔍 Processing PDF...</p>';
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                
+                resultDiv.innerHTML += `<p>✅ PDF opened: ${pdf.numPages} page(s)</p>`;
+                
+                // Try text extraction
+                const page = await pdf.getPage(1);
+                const textContent = await page.getTextContent();
+                const text = textContent.items.filter(item => 'str' in item).map(item => item.str).join(' ');
+                
+                resultDiv.innerHTML += `<p>✅ Text extracted: ${text.substring(0, 50)}...</p>`;
+                resultDiv.innerHTML += `<p>✅ PDF processing succeeded!</p>`;
+                
+                await pdf.destroy();
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">❌ PDF processing failed: ${error.message}</p>`;
+            }
+        }
+
+        // Auto-test with the file we created
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('./test_knitting_pattern.pdf');
+                const blob = await response.blob();
+                const file = new File([blob], 'test_knitting_pattern.pdf', { type: 'application/pdf' });
+                
+                resultDiv.innerHTML = '<p>📄 Auto-testing with test_knitting_pattern.pdf...</p>';
+                
+                const arrayBuffer = await file.arrayBuffer();
+                resultDiv.innerHTML += '<p>🔍 Opening PDF...</p>';
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                
+                resultDiv.innerHTML += `<p>✅ PDF opened: ${pdf.numPages} page(s)</p>`;
+                
+                const page = await pdf.getPage(1);
+                const textContent = await page.getTextContent();
+                const text = textContent.items.filter(item => 'str' in item).map(item => item.str).join(' ');
+                
+                resultDiv.innerHTML += `<p>✅ Text extracted (${text.length} chars): ${text.substring(0, 100)}...</p>`;
+                resultDiv.innerHTML += '<p style="color: green; font-weight: bold;">✅ PDF PROCESSING TEST PASSED!</p>';
+                
+                await pdf.destroy();
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red; font-weight: bold;">❌ PDF PROCESSING FAILED: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>
