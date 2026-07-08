@@ -45,9 +45,9 @@ export async function parseGridFromImages(
   cid: string = newConversionId(),
 ): Promise<GridData> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-  // Headroom under the route's 60s maxDuration; stops the 3-models × 2-attempts
+  // Headroom under the route's 180s maxDuration; stops the 3-models × 2-attempts
   // waterfall from outliving the function and dying as an unlogged 504.
-  const budget = createBudget(55_000);
+  const budget = createBudget(175_000);
   let lastError: any = null;
 
   outer:

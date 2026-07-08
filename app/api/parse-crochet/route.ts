@@ -16,7 +16,7 @@ import {
 
 // Pro models are slow and up to 4 are tried sequentially — without this the
 // platform's default timeout kills the request mid-fallback.
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
       : buildFlatPrompt(startCorner);
 
   const cid = newConversionId();
-  const budget = createBudget(55_000);
+  const budget = createBudget(175_000);
   logAI(cid, "request", { route: "parse-crochet", mode, payloadKB: Math.round(imageBase64.length / 1024) });
   let lastError: unknown = null;
 

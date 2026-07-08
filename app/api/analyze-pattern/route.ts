@@ -9,7 +9,7 @@ import {
   timedGenerate,
 } from "../../lib/server/aiTelemetry";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 function buildPrompt(rows: number, stitches: number): string {
   return `You are a knitting chart analyzer. This chart has approximately ${rows} rows × ${stitches} stitches.
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   const prompt = buildPrompt(rows ?? 1, stitches ?? 1);
   const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
   const cid    = newConversionId();
-  const budget = createBudget(55_000);
+  const budget = createBudget(85_000);
   logAI(cid, "request", { route: "analyze-pattern", payloadKB: Math.round(imageBase64.length / 1024) });
 
   for (const modelName of GEMINI_MODELS) {
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
           { inlineData: { mimeType: "image/png" as const, data: imageBase64 } },
           prompt,
         ],
-        { cid, modelName, timeoutMs: budget.callTimeout(20_000) },
+        { cid, modelName, timeoutMs: budget.callTimeout(40_000) },
       );
       const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       const start   = cleaned.indexOf("{");

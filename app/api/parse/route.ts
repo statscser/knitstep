@@ -12,7 +12,7 @@ import {
 
 // Sequential model fallback can take several calls; without this the platform's
 // default function timeout kills the request before any fallback (or logging) runs.
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -305,7 +305,7 @@ async function runGemini(
   const started = Date.now();
   // Leave ~5s headroom under maxDuration so we always return a real error
   // (with conversionId) instead of being killed by the platform.
-  const budget = createBudget(55_000);
+  const budget = createBudget(175_000);
   let lastError: any = null;
 
   for (let i = 0; i < GEMINI_MODELS.length; i++) {

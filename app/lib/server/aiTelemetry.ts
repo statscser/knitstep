@@ -8,8 +8,15 @@
 
 import type { GenerativeModel, Part } from "@google/generative-ai";
 
-/** Default per-call timeout. A healthy Flash response lands well under this. */
-export const AI_CALL_TIMEOUT_MS = 35_000;
+// Deliberately generous for now: real traffic shows large text-only patterns
+// (long prompt + long generated step list, no image decode) legitimately
+// taking 35-40s+ to fully generate. Until the pipeline itself is optimized,
+// a slow-but-progressing model call should be allowed to finish rather than
+// be killed and mistaken for a hang. Genuine early failures (429/404/invalid
+// key) come back from the API in seconds regardless of this cap — they don't
+// wait it out, see classifyGeminiError + the rate_limit/not_found fast-path
+// in each route's fallback loop.
+export const AI_CALL_TIMEOUT_MS = 90_000;
 
 export function newConversionId(): string {
   // Short id — easy for a user to read off an error message and report.

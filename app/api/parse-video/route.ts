@@ -6,7 +6,9 @@ import {
   timedGenerate,
 } from "../../lib/server/aiTelemetry";
 
-export const maxDuration = 60;
+// Must cover both stages: transcription, then an internal fetch to /api/parse
+// (which itself can now take up to ~180s).
+export const maxDuration = 240;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const MODEL_NAME = "gemini-3-flash-preview";
@@ -62,15 +64,15 @@ export async function POST(request: NextRequest) {
     // Pass YouTube URL directly — Gemini 2.5 Flash processes it natively.
     // The TypeScript type requires mimeType but the API accepts YouTube URLs
     // without it; casting to bypass the type constraint.
-    // Timeout: transcription is stage 1 of 2 inside a 60s function — cap it
-    // at 40s so stage 2 (text parsing) still has budget to run.
+    // Timeout: transcription is stage 1 of 2 — capped well under maxDuration
+    // so stage 2 (text parsing, itself now up to ~180s) still has room to run.
     const rawText = await timedGenerate(
       model,
       [
         { fileData: { fileUri: videoUrl.trim() } } as any,
         VIDEO_TO_TEXT_PROMPT,
       ],
-      { cid, modelName: MODEL_NAME, timeoutMs: 40_000 },
+      { cid, modelName: MODEL_NAME, timeoutMs: 60_000 },
     );
 
     if (!rawText) {
