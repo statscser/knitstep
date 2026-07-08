@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  logAI,
+  newConversionId,
+  timedGenerate,
+} from "../../lib/server/aiTelemetry";
 
 export const maxDuration = 60;
 
@@ -32,30 +37,48 @@ Repeat Rows 1-2 for 20 rows
 BO all sts`;
 
 export async function POST(request: NextRequest) {
+  const cid = newConversionId();
+
   if (!process.env.GEMINI_API_KEY) {
-    return NextResponse.json({ error: "API_KEY_MISSING" }, { status: 500 });
+    return NextResponse.json(
+      { error: "API_KEY_MISSING", conversionId: cid },
+      { status: 500 },
+    );
   }
 
   try {
     const { videoUrl, language } = await request.json();
 
     if (!videoUrl?.trim()) {
-      return NextResponse.json({ error: "NO_VIDEO_INPUT" }, { status: 400 });
+      return NextResponse.json(
+        { error: "NO_VIDEO_INPUT", conversionId: cid },
+        { status: 400 },
+      );
     }
 
+    logAI(cid, "request", { route: "parse-video" });
     const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
     // Pass YouTube URL directly — Gemini 2.5 Flash processes it natively.
     // The TypeScript type requires mimeType but the API accepts YouTube URLs
     // without it; casting to bypass the type constraint.
-    const result = await model.generateContent([
-      { fileData: { fileUri: videoUrl.trim() } } as any,
-      VIDEO_TO_TEXT_PROMPT,
-    ]);
-    const rawText = result.response.text().trim();
+    // Timeout: transcription is stage 1 of 2 inside a 60s function — cap it
+    // at 40s so stage 2 (text parsing) still has budget to run.
+    const rawText = await timedGenerate(
+      model,
+      [
+        { fileData: { fileUri: videoUrl.trim() } } as any,
+        VIDEO_TO_TEXT_PROMPT,
+      ],
+      { cid, modelName: MODEL_NAME, timeoutMs: 40_000 },
+    );
 
     if (!rawText) {
-      return NextResponse.json({ error: "NO_TEXT_EXTRACTED" }, { status: 422 });
+      logAI(cid, "transcript_empty", {});
+      return NextResponse.json(
+        { error: "NO_TEXT_EXTRACTED", conversionId: cid },
+        { status: 422 },
+      );
     }
 
     // ── Pipe raw text into the existing text parsing pipeline ─────────────────
@@ -67,11 +90,19 @@ export async function POST(request: NextRequest) {
       body:    JSON.stringify({ text: rawText, language }),
     });
     const parseData = await parseRes.json();
-    return NextResponse.json(parseData, { status: parseRes.status });
+    logAI(cid, "parse_stage_done", {
+      status: parseRes.status,
+      parseCid: parseData?.conversionId,
+    });
+    return NextResponse.json(
+      { ...parseData, conversionId: cid },
+      { status: parseRes.status },
+    );
 
   } catch (err: any) {
     const msg    = err?.message ?? "UNKNOWN_ERROR";
     const status = msg === "QUOTA_EXCEEDED" ? 429 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    logAI(cid, "request_failed", { route: "parse-video", error: msg, status });
+    return NextResponse.json({ error: msg, conversionId: cid }, { status });
   }
 }

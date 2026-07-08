@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GEMINI_MODELS } from "../../lib/models";
+import {
+  classifyGeminiError,
+  createBudget,
+  logAI,
+  newConversionId,
+  timedGenerate,
+} from "../../lib/server/aiTelemetry";
+
+export const maxDuration = 60;
 
 function buildPrompt(rows: number, stitches: number): string {
   return `You are a knitting chart analyzer. This chart has approximately ${rows} rows × ${stitches} stitches.
@@ -31,34 +40,42 @@ export async function POST(req: NextRequest) {
 
   const prompt = buildPrompt(rows ?? 1, stitches ?? 1);
   const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+  const cid    = newConversionId();
+  const budget = createBudget(55_000);
+  logAI(cid, "request", { route: "analyze-pattern", payloadKB: Math.round(imageBase64.length / 1024) });
 
   for (const modelName of GEMINI_MODELS) {
+    if (budget.exhausted()) break;
     const model = genAI.getGenerativeModel({ model: modelName });
     try {
-      console.log(`[AnalyzePattern] model=${modelName}`);
-      const result = await model.generateContent([
-        { inlineData: { mimeType: "image/png" as const, data: imageBase64 } },
-        prompt,
-      ]);
-      const raw     = result.response.text().trim();
+      const raw = await timedGenerate(
+        model,
+        [
+          { inlineData: { mimeType: "image/png" as const, data: imageBase64 } },
+          prompt,
+        ],
+        { cid, modelName, timeoutMs: budget.callTimeout(20_000) },
+      );
       const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       const start   = cleaned.indexOf("{");
       const end     = cleaned.lastIndexOf("}");
       if (start === -1 || end === -1) continue;
 
       const parsed = JSON.parse(cleaned.slice(start, end + 1));
+      logAI(cid, "analyze_ok", { model: modelName });
       return NextResponse.json({
         legend:         typeof parsed.legend  === "object" && parsed.legend  !== null ? parsed.legend  : {},
         colors:         typeof parsed.colors  === "object" && parsed.colors  !== null ? parsed.colors  : {},
         analysisReport: typeof parsed.analysisReport === "string" ? parsed.analysisReport : "",
       });
     } catch (err) {
-      const msg = (err as { message?: string }).message ?? "";
-      if (msg.includes("429") || msg.includes("404")) break;
+      const { kind } = classifyGeminiError(err);
+      if (kind === "rate_limit" || kind === "not_found") break;
       continue;
     }
   }
 
   // Silent fallback — caller ignores errors gracefully
+  logAI(cid, "all_models_failed", { route: "analyze-pattern" });
   return NextResponse.json({ legend: {}, colors: {}, analysisReport: "" });
 }

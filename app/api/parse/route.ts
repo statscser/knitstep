@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { parseGridFromImages } from "../../lib/GridAIService";
 import { GEMINI_MODELS } from "../../lib/models";
+import {
+  classifyGeminiError,
+  createBudget,
+  logAI,
+  newConversionId,
+  timedGenerate,
+} from "../../lib/server/aiTelemetry";
+
+// Sequential model fallback can take several calls; without this the platform's
+// default function timeout kills the request before any fallback (or logging) runs.
+export const maxDuration = 60;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -71,6 +82,7 @@ function flattenSteps(items: any[]): ParsedStep[] {
 async function runGemini(
   text: string,
   language: "zh" | "en",
+  cid: string,
   images?: { base64: string; mimeType: string }[],
 ): Promise<ParsedStep[]> {
   const hasImages = images && images.length > 0;
@@ -290,83 +302,74 @@ async function runGemini(
       ]
     : prompt;
 
-  console.time("AI_CONVERSION");
+  const started = Date.now();
+  // Leave ~5s headroom under maxDuration so we always return a real error
+  // (with conversionId) instead of being killed by the platform.
+  const budget = createBudget(55_000);
   let lastError: any = null;
 
   for (let i = 0; i < GEMINI_MODELS.length; i++) {
+    if (budget.exhausted()) {
+      logAI(cid, "budget_exhausted", { modelsTried: i });
+      break;
+    }
     const modelName = GEMINI_MODELS[i];
-    console.log(
-      `[AI] Attempt ${i + 1}/${GEMINI_MODELS.length} — model: ${modelName}`,
-    );
-
     const model = genAI.getGenerativeModel({ model: modelName });
 
     try {
-      const result = await model.generateContent(contents);
-      const raw = result.response.text().trim();
-
-      console.log(
-        `[AI] Raw response snippet (${modelName}): ${raw.slice(0, 100)}`,
-      );
+      const raw = await timedGenerate(model, contents, {
+        cid,
+        modelName,
+        timeoutMs: budget.callTimeout(),
+      });
 
       const jsonStart = raw.indexOf("{");
       const jsonEnd = raw.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error("No JSON found in response");
+      }
       const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+      const steps = flattenSteps(parsed.steps ?? []);
 
-      console.timeEnd("AI_CONVERSION");
-      return flattenSteps(parsed.steps ?? []);
+      logAI(cid, "parse_ok", {
+        model: modelName,
+        steps: steps.length,
+        totalMs: Date.now() - started,
+      });
+      return steps;
     } catch (error: any) {
       lastError = error;
-      const httpStatus = error.status ?? error.response?.status ?? "unknown";
-      const errMessage = error.message ?? "";
-      const errDetails = error.errorDetails ?? error.response?.data ?? null;
-      const msgLower =
-        errMessage.toLowerCase() +
-        JSON.stringify(errDetails ?? "").toLowerCase();
+      const { kind, message } = classifyGeminiError(error);
 
-      const isPayloadTooLarge =
-        httpStatus === 413 ||
-        msgLower.includes("payload size") ||
-        msgLower.includes("too large") ||
-        msgLower.includes("exceeds the limit") ||
-        msgLower.includes("request entity too large");
-      if (isPayloadTooLarge) {
-        console.timeEnd("AI_CONVERSION");
-        throw new Error("FILE_TOO_LARGE");
+      // JSON.parse / shape failures land here too — timedGenerate only logs
+      // API errors, so log local parse failures explicitly. SDK errors embed
+      // "GoogleGenerativeAI" in the message (their name is a plain "Error").
+      if (kind === "other" && !message.includes("GoogleGenerativeAI")) {
+        logAI(cid, "response_invalid", {
+          model: modelName,
+          message: message.slice(0, 300),
+        });
       }
 
-      const is429 = httpStatus === 429 || errMessage.includes("429");
-      const is404 = httpStatus === 404 || errMessage.includes("404");
-
-      if (is429) {
-        console.warn(
-          `[AI] ${modelName} → 429 Rate Limit. Moving to next model.`,
-        );
-        continue;
-      }
-      if (is404) {
-        console.warn(
-          `[AI] ${modelName} → 404 Not Found. Moving to next model.`,
-        );
-        continue;
-      }
-
-      console.warn(
-        `[AI] ${modelName} → unexpected error (${httpStatus}): ${errMessage}. Trying next model.`,
-      );
+      // A too-large payload will fail identically on every model — bail now.
+      if (kind === "payload_too_large") throw new Error("FILE_TOO_LARGE");
+      // timeout / rate_limit / not_found / other: fall through to next model.
     }
   }
 
-  console.timeEnd("AI_CONVERSION");
-  const lastMsg = lastError?.message ?? "All models failed";
-  const lastStatus = lastError?.status ?? lastError?.response?.status;
-  const wasRateLimit = lastStatus === 429 || lastMsg.includes("429");
+  logAI(cid, "all_models_failed", { totalMs: Date.now() - started });
+  const wasRateLimit = classifyGeminiError(lastError).kind === "rate_limit";
   throw new Error(wasRateLimit ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR");
 }
 
 export async function POST(request: NextRequest) {
+  const cid = newConversionId();
+
   if (!process.env.GEMINI_API_KEY) {
-    return NextResponse.json({ error: "API_KEY_MISSING" }, { status: 500 });
+    return NextResponse.json(
+      { error: "API_KEY_MISSING", conversionId: cid },
+      { status: 500 },
+    );
   }
 
   try {
@@ -380,20 +383,35 @@ export async function POST(request: NextRequest) {
         promptVersion?: string;
       };
 
+    logAI(cid, "request", {
+      route: "parse",
+      mode: isGridMode ? "grid" : "steps",
+      textLen: text?.length ?? 0,
+      imageCount: images?.length ?? 0,
+      payloadKB: Math.round(
+        (images ?? []).reduce((sum, img) => sum + img.base64.length, 0) / 1024,
+      ),
+      language,
+    });
+
     if (isGridMode) {
       if (!images || images.length === 0) {
-        return NextResponse.json({ error: "GRID_NO_IMAGE" }, { status: 400 });
+        return NextResponse.json(
+          { error: "GRID_NO_IMAGE", conversionId: cid },
+          { status: 400 },
+        );
       }
-      const gridData = await parseGridFromImages(images, promptVersion);
-      return NextResponse.json({ type: "grid", data: gridData });
+      const gridData = await parseGridFromImages(images, promptVersion, cid);
+      return NextResponse.json({ type: "grid", data: gridData, conversionId: cid });
     }
 
-    const steps = await runGemini(text, language, images);
-    return NextResponse.json({ steps });
+    const steps = await runGemini(text, language, cid, images);
+    return NextResponse.json({ steps, conversionId: cid });
   } catch (err: any) {
     const msg = err?.message ?? "UNKNOWN_ERROR";
     const status =
       msg === "QUOTA_EXCEEDED" ? 429 : msg === "FILE_TOO_LARGE" ? 413 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    logAI(cid, "request_failed", { route: "parse", error: msg, status });
+    return NextResponse.json({ error: msg, conversionId: cid }, { status });
   }
 }
