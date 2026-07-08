@@ -150,7 +150,15 @@ export function useAIConversion({
         }
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "UNKNOWN_ERROR");
+        if (!res.ok) {
+          // Carry the server-side conversion id so the user-visible error is
+          // traceable to the exact structured-log trail for this request.
+          const err = new Error(data.error ?? "UNKNOWN_ERROR") as Error & {
+            conversionId?: string;
+          };
+          if (typeof data.conversionId === "string") err.conversionId = data.conversionId;
+          throw err;
+        }
 
         // Grid mode: API returns { type:"grid", data: GridData }
         if (isGridMode && data.type === "grid") {
@@ -193,19 +201,21 @@ export function useAIConversion({
       // User cancelled — silently reset without showing an error
       if (err?.name === "AbortError") return;
       const msg = err?.message ?? "";
+      // Trace suffix so a user-reported error maps to the server-side log trail
+      const ref = typeof err?.conversionId === "string" ? ` (ID: ${err.conversionId})` : "";
       if      (msg === "QUOTA_EXCEEDED")           setRateLimitSecondsLeft(30);
-      else if (msg === "FILE_TOO_LARGE")           setError(t.errorFileTooLarge);
-      else if (msg === "API_KEY_MISSING")          setError(t.errorKey);
-      else if (msg === "MODEL_UNAVAILABLE")        setError(t.errorModel);
+      else if (msg === "FILE_TOO_LARGE")           setError(t.errorFileTooLarge + ref);
+      else if (msg === "API_KEY_MISSING")          setError(t.errorKey + ref);
+      else if (msg === "MODEL_UNAVAILABLE")        setError(t.errorModel + ref);
       else if (
         msg === "VIDEO_PROCESSING_FAILED" ||
         msg === "NO_TEXT_EXTRACTED"
-      )                                            setError(t.errorVideoFailed);
+      )                                            setError(t.errorVideoFailed + ref);
       else if (
         msg === "GRID_PARSE_FAILED" ||
         msg === "GRID_NO_IMAGE"
-      )                                            setError(t.errorGridFailed);
-      else                                         setError(t.errorUnknown);
+      )                                            setError(t.errorGridFailed + ref);
+      else                                         setError(t.errorUnknown + ref);
     } finally {
       // Only clear loading if this controller is still the active one
       // (a subsequent convert() call may have already replaced it)

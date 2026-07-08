@@ -453,6 +453,12 @@ export default function Home() {
           // Continue to rasterization fallback
         }
 
+        // Path decision is the single biggest accuracy factor for PDFs —
+        // log it so "why was my PDF inaccurate" is answerable from the console.
+        console.info(
+          `[PDF] path=${text.length > 200 ? "text-layer" : "rasterize"} pages=${numPages} textLen=${text.length}`,
+        );
+
         if (text.length > 200) {
           // Text-layer PDF: store extracted text for the API call; use dummy
           // placeholder images only so the UI can show the page count and

@@ -6,6 +6,17 @@ import type {
   CrochetStartCorner,
 } from "../../lib/types";
 import { GEMINI_PRO_MODELS } from "../../lib/models";
+import {
+  classifyGeminiError,
+  createBudget,
+  logAI,
+  newConversionId,
+  timedGenerate,
+} from "../../lib/server/aiTelemetry";
+
+// Pro models are slow and up to 4 are tried sequentially — without this the
+// platform's default timeout kills the request mid-fallback.
+export const maxDuration = 180;
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -156,25 +167,33 @@ export async function POST(req: NextRequest) {
       ? buildCircularPrompt(startPoint?.x ?? 0.5, startPoint?.y ?? 0.5)
       : buildFlatPrompt(startCorner);
 
+  const cid = newConversionId();
+  const budget = createBudget(175_000);
+  logAI(cid, "request", { route: "parse-crochet", mode, payloadKB: Math.round(imageBase64.length / 1024) });
   let lastError: unknown = null;
 
   for (const modelName of GEMINI_PRO_MODELS) {
+    if (budget.exhausted()) {
+      logAI(cid, "budget_exhausted", {});
+      break;
+    }
     const model = genAI.getGenerativeModel({ model: modelName });
     try {
-      console.log(`[parse-crochet] Trying model: ${modelName}`);
-      const result = await model.generateContent([
-        { inlineData: { mimeType: mimeType as string, data: imageBase64 } },
-        prompt,
-      ]);
-      const raw = result.response.text().trim();
+      const raw = await timedGenerate(
+        model,
+        [
+          { inlineData: { mimeType: mimeType as string, data: imageBase64 } },
+          prompt,
+        ],
+        { cid, modelName, timeoutMs: budget.callTimeout() },
+      );
       const jsonStart = raw.indexOf("{");
       const jsonEnd = raw.lastIndexOf("}");
       const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
       const reasoning = raw.slice(jsonEnd + 1).trim();
       if (reasoning) {
-        const label = mode === "circular" ? "Round analysis" : "Row analysis";
-        console.log(`[parse-crochet] ${label}:\n`, reasoning);
+        logAI(cid, "crochet_reasoning", { model: modelName, reasoning: reasoning.slice(0, 1000) });
       }
 
       let landmarks: CrochetLandmark[] = Array.isArray(parsed.landmarks)
@@ -215,18 +234,24 @@ export async function POST(req: NextRequest) {
       const totalRows: number =
         parsed.totalRows ?? parsed.totalRounds ?? landmarks.length;
 
-      return NextResponse.json({ landmarks, totalRows });
+      logAI(cid, "crochet_ok", { model: modelName, landmarks: landmarks.length, totalRows });
+      return NextResponse.json({ landmarks, totalRows, conversionId: cid });
     } catch (err: unknown) {
       lastError = err;
-      const msg = (err as { message?: string })?.message ?? "";
-      const status = (err as { status?: number })?.status;
-      if (status === 429 || msg.includes("429")) continue;
-      if (status === 404 || msg.includes("404")) continue;
-      // For other errors, still try next model
+      const { kind, message } = classifyGeminiError(err);
+      // JSON-parse failures aren't logged by timedGenerate — log them here.
+      // SDK errors embed "GoogleGenerativeAI" in the message.
+      if (kind === "other" && !message.includes("GoogleGenerativeAI")) {
+        logAI(cid, "response_invalid", { model: modelName, message: message.slice(0, 300) });
+      }
+      // All error kinds: try next model
     }
   }
 
-  console.error("[parse-crochet] All models failed:", lastError);
+  logAI(cid, "all_models_failed", {
+    route: "parse-crochet",
+    message: classifyGeminiError(lastError).message.slice(0, 300),
+  });
   // Return empty landmarks — caller falls back to equal-division
-  return NextResponse.json({ landmarks: [], totalRows: 0 }, { status: 200 });
+  return NextResponse.json({ landmarks: [], totalRows: 0, conversionId: cid }, { status: 200 });
 }

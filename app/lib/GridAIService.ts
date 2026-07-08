@@ -2,6 +2,13 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PROMPT_GALLERY, DEFAULT_PROMPT_VERSION, type PromptVersion } from "./prompts";
 import type { GridData } from "./types";
 import { GEMINI_MODELS } from "./models";
+import {
+  classifyGeminiError,
+  createBudget,
+  logAI,
+  newConversionId,
+  timedGenerate,
+} from "./server/aiTelemetry";
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -35,16 +42,25 @@ export type ImagePayload = { base64: string; mimeType: string };
 export async function parseGridFromImages(
   images: ImagePayload[],
   version: string = DEFAULT_PROMPT_VERSION,
+  cid: string = newConversionId(),
 ): Promise<GridData> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+  // Headroom under the route's 180s maxDuration; stops the 3-models × 2-attempts
+  // waterfall from outliving the function and dying as an unlogged 504.
+  const budget = createBudget(175_000);
   let lastError: any = null;
 
+  outer:
   for (let i = 0; i < GEMINI_MODELS.length; i++) {
     const modelName = GEMINI_MODELS[i];
     const model     = genAI.getGenerativeModel({ model: modelName });
 
     // Up to 2 attempts per model: first clean, second with error context
     for (let attempt = 0; attempt < 2; attempt++) {
+      if (budget.exhausted()) {
+        logAI(cid, "budget_exhausted", { model: modelName, attempt: attempt + 1 });
+        break outer;
+      }
       const retryNote = attempt > 0
         ? `\n\nPREVIOUS ATTEMPT FAILED: ${lastError?.message ?? "invalid JSON"}. Ensure your response is valid JSON matching the required schema exactly.`
         : "";
@@ -54,11 +70,13 @@ export async function parseGridFromImages(
         getGridPrompt(version) + retryNote,
       ];
 
-      console.log(`[GridAI] model=${modelName} attempt=${attempt + 1}`);
       try {
-        const result = await model.generateContent(contents);
-        const raw    = result.response.text().trim();
-        console.log(`[GridAI] snippet: ${raw.slice(0, 300)}`);
+        const raw = await timedGenerate(model, contents, {
+          cid,
+          modelName,
+          attempt: attempt + 1,
+          timeoutMs: budget.callTimeout(),
+        });
 
         // Strip markdown fences if the model added them despite instructions
         const cleaned   = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
@@ -91,9 +109,10 @@ export async function parseGridFromImages(
         // ── Sanitize: fix totalRows/totalStitches mismatches so canvas is complete ──
         const actualRowCount = gridData.rows.length;
         if (actualRowCount !== gridData.totalRows) {
-          console.warn(
-            `[GridAI] totalRows mismatch: declared=${gridData.totalRows} actual=${actualRowCount} — correcting`,
-          );
+          logAI(cid, "grid_rows_mismatch", {
+            declared: gridData.totalRows,
+            actual: actualRowCount,
+          });
           gridData.totalRows = actualRowCount;
         }
         const N = gridData.totalStitches;
@@ -104,29 +123,39 @@ export async function parseGridFromImages(
         }
 
         // Debug: log first two rows so color mis-mapping is visible in server logs
-        console.log(`[GridAI] rows=${gridData.totalRows} sts=${gridData.totalStitches} confidence=${confidence}`);
-        console.log(`[GridAI] row1 cells:`, JSON.stringify(gridData.rows[0]?.cells?.slice(0, 6)));
-        if (gridData.rows[1]) {
-          console.log(`[GridAI] row2 cells:`, JSON.stringify(gridData.rows[1]?.cells?.slice(0, 6)));
-        }
+        logAI(cid, "grid_ok", {
+          model: modelName,
+          rows: gridData.totalRows,
+          stitches: gridData.totalStitches,
+          confidence,
+          row1: JSON.stringify(gridData.rows[0]?.cells?.slice(0, 6)),
+          row2: JSON.stringify(gridData.rows[1]?.cells?.slice(0, 6)),
+        });
 
         return gridData as GridData;
 
       } catch (err: any) {
-        lastError      = err;
-        const status   = err.status ?? err.response?.status ?? "unknown";
-        const msgLower = (err.message ?? "").toLowerCase();
+        lastError = err;
+        const { kind, message } = classifyGeminiError(err);
 
-        if (status === 413 || msgLower.includes("too large"))            throw new Error("FILE_TOO_LARGE");
-        if (status === 429 || msgLower.includes("429")) { console.warn(`[GridAI] ${modelName} → 429`); break; }
-        if (status === 404 || msgLower.includes("404")) { console.warn(`[GridAI] ${modelName} → 404`); break; }
+        // Validation / JSON-parse failures aren't logged by timedGenerate.
+        // SDK errors embed "GoogleGenerativeAI" in the message.
+        if (kind === "other" && !message.includes("GoogleGenerativeAI")) {
+          logAI(cid, "response_invalid", {
+            model: modelName,
+            attempt: attempt + 1,
+            message: message.slice(0, 300),
+          });
+        }
 
-        console.warn(`[GridAI] ${modelName} attempt ${attempt + 1} failed: ${err.message}`);
+        if (kind === "payload_too_large") throw new Error("FILE_TOO_LARGE");
+        // Rate-limited or missing model: retrying the same model is pointless
+        if (kind === "rate_limit" || kind === "not_found") break;
       }
     }
   }
 
-  const msg          = lastError?.message ?? "All models failed";
-  const wasRateLimit = (lastError?.status ?? lastError?.response?.status) === 429 || msg.includes("429");
+  logAI(cid, "all_models_failed", { route: "grid" });
+  const wasRateLimit = classifyGeminiError(lastError).kind === "rate_limit";
   throw new Error(wasRateLimit ? "QUOTA_EXCEEDED" : "GRID_PARSE_FAILED");
 }
